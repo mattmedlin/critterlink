@@ -47,7 +47,7 @@ void Memory::write(std::uint32_t address, unsigned width, std::uint64_t value) {
     }
 }
 
-void Memory::clear() noexcept { std::fill(ram_.begin(), ram_.end(), 0); }
+void Memory::clear() noexcept { std::fill(ram_.begin(), ram_.end(), std::uint8_t{0}); }
 std::span<const std::uint8_t> Memory::bytes() const noexcept { return ram_; }
 
 } // namespace critterlink
