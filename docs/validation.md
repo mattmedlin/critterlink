@@ -89,3 +89,9 @@ lines asserted, identical replay, pad bytes `ff 41 5a ff bf`, and initial PCM
 samples `28672 -32768 4096 -4096`. These validate the explicitly bounded
 [hardware profile](hardware-plan.md), not complete PS2 hardware, calibrated
 timing, guest interrupt handling, IOP/SIO2, or register-driven SPU2 audio.
+
+Remote verification passed for commit `d4ae4a1` in
+[GitHub Actions run 37034073971](https://github.com/mattmedlin/critterlink/actions/runs/37034073971):
+all eight Debug/Release jobs on Windows x86-64, Linux x86-64, macOS ARM64,
+and macOS x86-64 built with warnings treated as errors and passed all eleven
+suites. This completes the scoped #8/#9 delivery; umbrella #4 remains open.
