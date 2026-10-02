@@ -1,8 +1,8 @@
 # Critterlink
 
 A from-scratch C++ PS2 emulator project targeting Windows, macOS (including
-Apple Silicon), and Linux. **This is the milestone 1 foundation, not a working
-PS2 emulator. It cannot boot firmware or run games or homebrew.**
+Apple Silicon), and Linux. **This is an experimental CPU slice, not a working
+PS2 emulator. It cannot boot firmware or run games or homebrew ELF files.**
 
 ## Build and test
 
@@ -33,6 +33,16 @@ Success exits with 0; malformed arguments print to stderr and exit with 2.
 Even large counts complete without a real-time wait. These ticks do not yet
 represent executed CPU instructions or a calibrated PS2 clock.
 
+Run the hand-authored CPU demo with `./build/critterlink --demo`, or add
+`--trace` to see instruction addresses, opcodes, and delay slots. It retires 25
+instructions and produces r2=15, r3=5, r4=15, r5=143, and RAM[256]=15.
+`--demo --steps N` sets a budget from 0 through 100000. Budget exhaustion exits
+with 0; a CPU fault prints diagnostics and exits with 1; invalid arguments exit
+with 2. A custom budget pauses execution wherever it lands, not necessarily at
+the demo's expected endpoint. On Windows use the executable path shown above.
+See [CPU coverage](docs/cpu-coverage.md) for the instruction matrix, memory map,
+exception limitations, independent demo results, and reference manuals.
+
 ## Architecture
 
 - `critterlink_core`: platform-independent static library using only C++ standard
@@ -40,6 +50,7 @@ represent executed CPU instructions or a calibrated PS2 clock.
   windowing, or OS APIs are used by the core.
 - `critterlink`: small host CLI responsible for arguments and console output.
 - `critterlink_tests`: dependency-free checks that remain active in Release.
+- `critterlink_cpu_tests`: interpreter, RAM bus, and deterministic execution tests.
 
 `MachineState` explicitly holds the current logical tick and two controller
 samples. `Machine` owns a validated, immutable input timeline plus its playback
@@ -77,10 +88,11 @@ a successful remote run.
 
 ## Scope and provenance
 
-CPU interpretation, RAM/bus, ELF loading, BIOS boot, graphics, sound, storage,
-PS2 peripherals, desktop UI, game compatibility, and networking are all
-unimplemented. Later milestones will add them incrementally. No compatibility
-or performance claims are made by this scaffold.
+A bounded scalar CPU subset and bootstrap RAM bus are implemented. ELF loading,
+BIOS boot, full CPU/COP0 execution, TLB, graphics, sound, storage, PS2 peripherals,
+desktop UI, game compatibility, and networking remain unimplemented. Later
+milestones will add them incrementally. No game compatibility or performance
+claims are made by this slice.
 
 See [PROVENANCE.md](PROVENANCE.md) for source origin, dependency licensing, and
 repository content rules.

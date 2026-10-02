@@ -34,3 +34,14 @@ commit `1f2be81291a4542cc11fc9232b5b130576f60346`:
 This satisfies the milestone's cross-platform build/test acceptance criterion.
 No PS2 software was run, and no hardware emulation or game compatibility was
 verified.
+
+## Milestone 2 local validation
+
+On October 1, 2026 (America/New_York), the scalar CPU slice and RAM bus passed
+the `core`, `cpu_memory`, and `cli_contract` suites on native Apple Silicon with
+Apple Clang 15 and CMake 4.4.3 in Debug and Release. A separate Debug build with
+`-fsanitize=address,undefined -fno-omit-frame-pointer` also passed all suites.
+The demo produced the independently specified results in
+[cpu-coverage.md](cpu-coverage.md). Tests include arithmetic boundaries, delay
+slots, memory aliases/endianness/alignment, exception observations, deterministic
+replay, unsupported-opcode diagnostics, and CLI exit behavior.

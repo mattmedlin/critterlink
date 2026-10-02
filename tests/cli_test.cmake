@@ -23,6 +23,16 @@ check_cli(2 "Usage:" --unknown)
 check_cli(2 "Usage:" --ticks)
 check_cli(2 "Usage:" --ticks 1 extra)
 check_cli(2 "Usage:" --help extra)
+check_cli(0 "retired=25 pc=36 r2=15 r3=5 r4=15 r5=143 ram.256.=15 budget-exhausted" --demo)
+check_cli(0 "retired=0 pc=0" --demo --steps 0)
+check_cli(0 "pc=0x00000014 opcode=0x24630001 delay-slot retired" --demo --trace)
+check_cli(0 "retired=1 pc=4" --demo --trace --steps 1)
+check_cli(2 "Invalid step budget" --demo --steps 100001)
+check_cli(2 "Invalid step budget" --demo --steps -1)
+check_cli(2 "Usage:" --demo --steps)
+check_cli(2 "Usage:" --demo --trace --trace)
+check_cli(2 "Usage:" --demo --steps 1 --steps 2)
+check_cli(2 "Usage:" --demo --ticks 2)
 foreach(invalid IN ITEMS -1 +1 1.5 1x " 1" 18446744073709551616)
   check_cli(2 "Invalid tick count" --ticks "${invalid}")
 endforeach()
@@ -31,4 +41,13 @@ execute_process(COMMAND "${CLI}" --ticks "" RESULT_VARIABLE code
   OUTPUT_VARIABLE output ERROR_VARIABLE error TIMEOUT 5)
 if(NOT code EQUAL 2 OR NOT error MATCHES "Invalid tick count" OR NOT output STREQUAL "")
   message(FATAL_ERROR "Empty tick argument was not rejected correctly")
+endif()
+
+# Running beyond the fixture eventually fetches its data word as an unsupported
+# instruction. This exercises the CLI's real CPU-fault exit and diagnostic path.
+execute_process(COMMAND "${CLI}" --demo --steps 100 --trace RESULT_VARIABLE code
+  OUTPUT_VARIABLE output ERROR_VARIABLE error TIMEOUT 5)
+if(NOT code EQUAL 1 OR NOT error MATCHES "pc=0x00000100 opcode=0x0000000f: unsupported"
+   OR NOT output MATCHES "retired=80 pc=256" OR NOT output MATCHES "stopped")
+  message(FATAL_ERROR "CPU fault CLI contract failed: ${code}: ${output} / ${error}")
 endif()
