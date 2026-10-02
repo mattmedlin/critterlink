@@ -64,3 +64,12 @@ The homebrew ELF produced the five expected signature words documented in
 and malformed-header/segment cases while checking that the full RAM image and
 CPU state remain unchanged. The fixture rebuild is checked against a fixed
 SHA-256 value so all supported hosts must execute identical guest bytes.
+
+Remote verification passed for commit `c7af045` in
+[GitHub Actions run 36950746904](https://github.com/mattmedlin/critterlink/actions/runs/36950746904):
+all eight Debug/Release jobs on Windows x86-64, Linux x86-64, macOS ARM64,
+and macOS x86-64 passed all six suites, including fixture hash and signature
+checks. The first Windows build caught a test-data narrowing warning; replacing
+the forwarding pair constructor with byte-typed aggregate initialization fixed
+it without relaxing compiler warnings. The affected loader suite also passed
+again with address/undefined-behavior sanitizers after that test-only fix.
