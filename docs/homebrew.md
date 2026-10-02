@@ -24,7 +24,8 @@ For Visual Studio builds, use `.\build\Debug\critterlink.exe` as the executable.
 The ELF path remains `build/fixtures/sum.elf`, shared across configurations.
 Add `--trace` for the actual instruction stream. `--steps 0` loads without
 executing; `--steps 34` stops immediately after the completion marker is stored.
-The default is 1000 instructions; allowed budgets are 0–100000. At most 16
+The default is 1000 CPU steps; allowed budgets are 0–100000. Exception entries
+consume a step without retiring an instruction. At most 16
 `--inspect` options are accepted, each reading one aligned 32-bit RAM word.
 Addresses can be decimal or hexadecimal with `0x`. Inspection is read-only.
 

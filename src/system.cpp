@@ -22,7 +22,8 @@ DigitalPad& System::pad(std::size_t port) { return pads_.at(port); }
 
 RunResult System::run(std::uint64_t budget, std::vector<InstructionTrace>* trace) {
     RunResult result;
-    while (result.retired < budget && !cpu_.state().stop && !memory_.hardware().stop()) {
+    std::uint64_t steps = 0;
+    while (steps < budget && !cpu_.state().stop && !memory_.hardware().stop()) {
         const auto now = memory_.hardware().now();
         if (now == std::numeric_limits<std::uint64_t>::max()) {
             throw std::overflow_error("system logical time exhausted");
@@ -35,13 +36,12 @@ RunResult System::run(std::uint64_t budget, std::vector<InstructionTrace>* trace
             pads_[event.port].set_buttons(event.state.buttons);
         }
         auto entry = cpu_.step(memory_);
-        if (entry.retired) {
-            ++result.retired;
-            memory_.advance(1);
-        }
+        ++steps;
+        if (entry.retired) { ++result.retired; }
+        if (entry.retired || entry.exception) { memory_.advance(1); }
         if (trace) { trace->push_back(std::move(entry)); }
     }
-    result.budget_exhausted = !cpu_.state().stop && !memory_.hardware().stop() && result.retired == budget;
+    result.budget_exhausted = !cpu_.state().stop && !memory_.hardware().stop() && steps == budget;
     return result;
 }
 

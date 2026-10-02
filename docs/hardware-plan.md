@@ -19,24 +19,24 @@ before the umbrella's broader criteria are checked off:
 | --- | --- | --- | --- |
 | [#8](https://github.com/mattmedlin/critterlink/issues/8) | Scheduler, EE timers and INTC | #3 | Implemented diagnostic subset; explicit policies below |
 | [#9](https://github.com/mattmedlin/critterlink/issues/9) | GIF normal DMA and reference sprite renderer | #8 | Implemented diagnostic subset |
-| [#10](https://github.com/mattmedlin/critterlink/issues/10) | COP0 interrupt/exception dispatch and ERET | #8 | Not implemented; INT0/INT1 are observable lines only |
+| [#10](https://github.com/mattmedlin/critterlink/issues/10) | COP0 interrupt/exception dispatch and ERET | #8 | Implemented kernel diagnostic dispatch and ERET; see [interrupts.md](interrupts.md) |
 | [#11](https://github.com/mattmedlin/critterlink/issues/11) | VIF and vector units | DMA channels/FIFOs beyond #9 | Not implemented |
 | [#12](https://github.com/mattmedlin/critterlink/issues/12) | IOP and SIF communication | #8, #10, DMA extensions | Not implemented |
 | [#13](https://github.com/mattmedlin/critterlink/issues/13) | Register-driven SPU2 audio | #12 | Filter-zero ADPCM primitive only; no voice engine or playback |
 | [#14](https://github.com/mattmedlin/critterlink/issues/14) | SIO2 controllers, memory cards and disc | #12 | Host digital-pad poll primitive only; storage/disc absent |
 | [#15](https://github.com/mattmedlin/critterlink/issues/15) | Guest-driven audiovisual/input restoration | #10–#14 | CPU/DMA/timer/graphics replay works; full integration remains open |
 
-Work after this delivery should start with #10, then extend DMA and add IOP/SIF
-and VIF/VU paths. SPU2 and SIO2 should consume real IOP-side transactions before
+Issue #10 now adds guest interrupt/exception dispatch. Next extend DMA and add
+IOP/SIF and VIF/VU paths. SPU2 and SIO2 should consume real IOP-side transactions before
 their host primitives can count as integrated console devices. Memory-card and
 disc diagnostics should use original synthetic media, never proprietary dumps.
 
 ## Host-neutral system and timing contract
 
 `System` owns CPU, RAM/hardware, two digital pad endpoints, immutable recorded
-input, and an input cursor. A successful CPU instruction advances one logical
+input, and an input cursor. A successful CPU instruction or guest exception entry advances one logical
 bus tick. This ratio is a **diagnostic scheduling policy**, not the real EE
-clock ratio or instruction timing. CPU faults advance no device time. On each
+clock ratio or instruction timing. Host stops advance no device time. On each
 tick timers run before one GIF DMA qword. Recorded pad input applies before the
 CPU instruction at its timestamp; same-tick samples retain supplied order.
 Analog input is rejected until supported. Direct pad polls use the serial
@@ -92,7 +92,7 @@ complete on the next enabled tick. A DMA boundary does not discard a partial
 GIF packet. INT1 reflects enabled channel2 completion or a bus error.
 
 Missing: timer gates, HBlank/VBlank clocks, SBUS HOLD, real-time frequencies,
-interrupt delivery into COP0, other DMA channels, chain/interleave modes,
+other DMA channels, chain/interleave modes,
 scratchpad DMA, FIFO stalls, arbitration and cycle-level bus timing.
 
 Two timer details are explicitly **implementation policies awaiting hardware
@@ -114,7 +114,8 @@ tag and GS register writes. The guest configures DMA; the CPU does not write the
 expected framebuffer directly. The host supplies fixture bytes just as a loader
 would. The sprite occupies x=2..4 and y=3..6: exactly 12 pixels, each
 `0x80402010`; every other pixel remains zero. Timer0 and DMA interrupt lines are
-both asserted by tick64, but no guest handler executes.
+both asserted by tick64; this fixture leaves CPU interrupts disabled. The
+separate `--interrupt-demo` enables them and executes guest handlers.
 
 At tick24 a snapshot contains one DMA qword remaining and a pending first sprite
 vertex. A controller transaction has sent its first two bytes and latched Cross

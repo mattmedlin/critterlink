@@ -2,6 +2,7 @@
 
 #include <iomanip>
 #include <sstream>
+#include <stdexcept>
 #include <utility>
 
 namespace critterlink {
@@ -33,14 +34,42 @@ void Cpu::reset(std::uint32_t entry) noexcept {
     state_.next_pc = entry + 4u;
 }
 void Cpu::restore(CpuState state) {
+    if ((state.cop0.status & ~0x00410c07u) != 0) {
+        throw std::invalid_argument("unsupported COP0 Status mode in snapshot");
+    }
     state.gpr[0] = {};
     state_ = std::move(state);
 }
 
 InstructionTrace Cpu::step(Memory& memory) {
-    InstructionTrace trace{state_.pc, {}, state_.delay_slot, false, state_.stop};
+    InstructionTrace trace{state_.pc, {}, state_.delay_slot, false, state_.stop, {}};
     if (state_.stop) {
         return trace;
+    }
+    // Device lines remain visible in Cause even while masked or in a handler.
+    state_.cop0.cause = (state_.cop0.cause & ~0xc00u) |
+                       (memory.hardware().int0() ? 0x400u : 0u) |
+                       (memory.hardware().int1() ? 0x800u : 0u);
+    const auto enter_exception = [&](unsigned code, std::optional<std::uint32_t> bad_address = {}) {
+        auto& cop0 = state_.cop0;
+        if ((cop0.status & 2u) == 0) {
+            cop0.epc = state_.delay_slot ? state_.branch_pc : state_.pc;
+            cop0.cause = (cop0.cause & ~0x80000000u) | (state_.delay_slot ? 0x80000000u : 0u);
+        }
+        cop0.cause = (cop0.cause & ~0x7cu) | (code << 2);
+        if (bad_address) { cop0.bad_vaddr = *bad_address; }
+        cop0.status |= 2u;
+        const auto base = (cop0.status & 0x400000u) != 0 ? 0xbfc00200u : 0x80000000u;
+        state_.pc = base + (code == 0 ? 0x200u : 0x180u);
+        state_.next_pc = state_.pc + 4u;
+        state_.delay_slot = false;
+        state_.branch_pc = 0;
+        trace.exception = code;
+        return trace;
+    };
+    if ((state_.cop0.status & 0x10007u) == 0x10001u &&
+        (state_.cop0.status & state_.cop0.cause & 0xc00u) != 0) {
+        return enter_exception(0);
     }
     const auto fail = [&](StopKind kind, const std::string& reason,
                           std::optional<unsigned> exception = {},
@@ -51,13 +80,7 @@ InstructionTrace Cpu::step(Memory& memory) {
             message += " delay-slot-of=" + hex32(state_.branch_pc);
         }
         message += ": " + reason;
-        if (exception) {
-            state_.cop0.cause = (*exception << 2) | (state_.delay_slot ? 0x80000000u : 0u);
-            state_.cop0.epc = state_.delay_slot ? state_.branch_pc : state_.pc;
-            if (bad_address) {
-                state_.cop0.bad_vaddr = *bad_address;
-            }
-        }
+        if (exception) { return enter_exception(*exception, bad_address); }
         state_.stop = CpuStop{kind, state_.pc, trace.instruction, message};
         trace.stop = state_.stop;
         return trace;
@@ -147,8 +170,8 @@ InstructionTrace Cpu::step(Memory& memory) {
                     write(rd, sign_extend(pc + 8u, 32));
                 }
                 break;
-            case 12: return fail(StopKind::exception, "SYSCALL; exception dispatch is not implemented", 8);
-            case 13: return fail(StopKind::exception, "BREAK; exception dispatch is not implemented", 9);
+            case 12: return fail(StopKind::exception, "SYSCALL", 8);
+            case 13: return fail(StopKind::exception, "BREAK", 9);
             case 32: case 33: case 34: case 35:
                 if (shift != 0) { return unsupported(); }
                 if (!add_word(word_a, word_b, rd, (function & 1u) == 0, (function & 2u) != 0)) {
@@ -193,11 +216,33 @@ InstructionTrace Cpu::step(Memory& memory) {
             if (rs != 0) { return unsupported(); }
             write(rt, sign_extend(immediate << 16, 32));
             break;
-        case 16: // Read-only subset of MFC0; all other COP0 operations stop.
-            if (rs != 0 || (instruction & 0x7ffu) != 0) { return unsupported(); }
+        case 16:
+            if (instruction == 0x42000018u) { // ERET has no delay slot.
+                if (state_.delay_slot) {
+                    return fail(StopKind::delay_slot_branch, "ERET in a delay slot is unsupported");
+                }
+                const bool error_level = (next.cop0.status & 4u) != 0;
+                next.pc = error_level ? next.cop0.error_epc : next.cop0.epc;
+                next.cop0.status &= ~(error_level ? 4u : 2u);
+                next.next_pc = next.pc + 4u;
+                break;
+            }
+            if ((rs != 0 && rs != 4) || (instruction & 0x7ffu) != 0) { return unsupported(); }
+            if (rs == 4) {
+                if (rd == 12) {
+                    // IE/EXL/ERL, IM0/IM1, EIE, BEV. Other modes need their own implementation.
+                    if ((word_b & ~0x00410c07u) != 0) { return unsupported(); }
+                    next.cop0.status = word_b;
+                } else if (rd == 14) { next.cop0.epc = word_b; }
+                else if (rd == 30) { next.cop0.error_epc = word_b; }
+                else { return unsupported(); }
+                break;
+            }
             if (rd == 8) { write(rt, sign_extend(state_.cop0.bad_vaddr, 32)); }
+            else if (rd == 12) { write(rt, sign_extend(state_.cop0.status, 32)); }
             else if (rd == 13) { write(rt, sign_extend(state_.cop0.cause, 32)); }
             else if (rd == 14) { write(rt, sign_extend(state_.cop0.epc, 32)); }
+            else if (rd == 30) { write(rt, sign_extend(state_.cop0.error_epc, 32)); }
             else { return unsupported(); }
             break;
         case 32: case 33: case 35: case 36: case 37: case 39: case 55: {
@@ -232,12 +277,14 @@ InstructionTrace Cpu::step(Memory& memory) {
 
 RunResult Cpu::run(Memory& memory, std::uint64_t budget, std::vector<InstructionTrace>* trace) {
     RunResult result;
-    while (result.retired < budget && !state_.stop) {
+    std::uint64_t steps = 0;
+    while (steps < budget && !state_.stop) {
         auto entry = step(memory);
+        ++steps;
         if (entry.retired) { ++result.retired; }
         if (trace) { trace->push_back(std::move(entry)); }
     }
-    result.budget_exhausted = !state_.stop && result.retired == budget;
+    result.budget_exhausted = !state_.stop && steps == budget;
     return result;
 }
 

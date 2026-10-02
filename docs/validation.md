@@ -95,3 +95,20 @@ Remote verification passed for commit `d4ae4a1` in
 all eight Debug/Release jobs on Windows x86-64, Linux x86-64, macOS ARM64,
 and macOS x86-64 built with warnings treated as errors and passed all eleven
 suites. This completes the scoped #8/#9 delivery; umbrella #4 remains open.
+
+## COP0 dispatch (#10) local validation
+
+On October 2, 2026 (America/New_York), native Apple Silicon Debug, Release,
+and address/undefined-behavior sanitizer builds passed all thirteen suites.
+New COP0 and interrupt suites cover Status masks, pending/disabled/simultaneous
+interrupts, nested EXL exceptions, EPC/BD preservation, BEV vectors, ERET's ERL
+priority, strict unsupported encodings, and bounded recursive handler faults.
+The final invalid-Status snapshot atomicity assertion also passed separately
+under sanitizers after the complete run.
+
+The original `--interrupt-demo` guest acknowledges timer and DMA sources and
+returns with ERET: 128 logical ticks, one service per source, 12 sprite pixels,
+both sources acknowledged, and identical complete state/trace after restoring
+inside its handler. The prior CPU, ELF, hardware and CLI fixtures still pass.
+These results validate the [documented kernel subset](interrupts.md), not full
+COP0, TLB, BIOS execution, privilege enforcement or cycle-accurate behavior.

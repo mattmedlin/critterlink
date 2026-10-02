@@ -27,6 +27,12 @@ documentation are linked in `docs/hardware-plan.md`, `docs/graphics.md` and
 graphics/audio runtime dependency was added. The foundation does not change the
 scope of the existing fixture-only MIT license.
 
+The COP0 dispatch implementation and interrupt handler fixture were authored
+from scratch with Codex/subagent assistance. The original Sony core and
+instruction manuals referenced in `docs/interrupts.md` informed the supported
+register and exception semantics; no emulator source or proprietary guest
+binary was imported. The handler consists of original literal instruction words.
+
 There are no vendored or downloaded C++ dependencies. The core, CLI, and tests
 use the C++ standard library provided by the selected compiler. Its distribution
 and runtime terms depend on the toolchain (MSVC, Apple Clang/libc++, or GCC/libstdc++).

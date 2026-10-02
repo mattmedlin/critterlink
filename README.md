@@ -40,7 +40,7 @@ Run the hand-authored CPU demo with `./build/critterlink --demo`, or add
 `--trace` to see instruction addresses, opcodes, and delay slots. It retires 25
 instructions and produces r2=15, r3=5, r4=15, r5=143, and RAM[256]=15.
 `--demo --steps N` sets a budget from 0 through 100000. Budget exhaustion exits
-with 0; a CPU fault prints diagnostics and exits with 1; invalid arguments exit
+with 0; an emulator stop prints diagnostics and exits with 1; invalid arguments exit
 with 2. A custom budget pauses execution wherever it lands, not necessarily at
 the demo's expected endpoint. On Windows use the executable path shown above.
 See [CPU coverage](docs/cpu-coverage.md) for the instruction matrix, memory map,
@@ -60,8 +60,14 @@ The first hardware diagnostic is available with `./build/critterlink --hardware-
 It exercises guest-configured timer/INTC/GIF DMA, a headless sprite renderer, and
 mid-transfer restoration. It also reports separate digital-pad and filter-zero
 audio-decoder checks. Expected output includes `sprite-pixels=12`, `int0=1`,
-`int1=1`, and `replay=identical`. Full IOP/SPU2 and guest interrupt dispatch are
+`int1=1`, and `replay=identical`. Full IOP/SPU2 are
 still missing. See the [milestone 4 plan and status](docs/hardware-plan.md).
+
+Guest interrupt handlers can be checked with `./build/critterlink --interrupt-demo`.
+Expected: `ticks=128 timer-services=1 dma-services=1 sprite-pixels=12 acknowledged=1
+returned=1 replay=identical`. The guest acknowledges timer/DMA interrupts and
+returns with ERET. See [the COP0 subset](docs/interrupts.md). Execution budgets
+include exception entries, so repeatedly faulting handlers remain bounded.
 
 ## Architecture
 
@@ -74,7 +80,7 @@ still missing. See the [milestone 4 plan and status](docs/hardware-plan.md).
 - `critterlink_elf_tests`: ELF validation, atomic rejection, loading, and fixture execution.
 - `System`: CPU/device scheduling and complete in-memory snapshots; `--elf`
   runs through this coordinated path using one logical device tick per retired
-  instruction (not calibrated PS2 timing).
+  instruction or guest exception entry (not calibrated PS2 timing).
 - Additional scheduler, hardware, system, graphics and peripherals suites test
   the bounded subsystem contracts and restoration.
 

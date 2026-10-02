@@ -8,8 +8,8 @@ boot a BIOS or run games. Passing these tests does not establish PS2 compatibili
 ## Execution contract
 
 `CpuState` contains 32 GPRs represented as two 64-bit lanes, HI/LO placeholders,
-SA, a 32-bit PC, pending next PC, explicit delay-slot context, three COP0
-observations, and a sticky stop record. Scalar instructions preserve the upper
+SA, a 32-bit PC, pending next PC, explicit delay-slot context, explicit COP0
+registers, and a sticky stop record. Scalar instructions preserve the upper
 GPR lane; r0 is always zero, including after debugger state import. HI/LO and SA
 are reserved for later instruction families and are not executed yet.
 
@@ -19,15 +19,16 @@ not a hardware reset. It does not clear the separately owned `Memory` object.
 supplies internally consistent PC/delay-slot fields. Resuming a complete session
 requires preserving both CPU state and RAM. Save-file serialization is deferred.
 
-`step` fetches, decodes, and executes one instruction. `run(memory, budget)`
-retires at most that many instructions, stopping on the first fault. Exhausting
+`step` samples interrupts, then fetches, decodes, and executes an instruction
+when no interrupt is taken. `run(memory, budget)` bounds CPU steps, including
+exception entries; its retired count includes only completed instructions. Exhausting
 a budget is a pause, not a hardware HALT. A zero budget changes nothing. Faulted
 instructions do not retire or commit register writes/stores. Earlier retired
 instructions remain committed. A stop stays set until reset or debugger restore.
 
 An optional trace vector receives PC, raw opcode (absent on fetch failure),
-delay-slot status, retirement status, and any stop diagnostic for each attempted
-instruction. Traces append across runs; callers control their lifetime/size.
+delay-slot status, retirement status, an optional dispatched exception code, and any stop diagnostic for each CPU
+boundary. Traces append across runs; callers control their lifetime/size.
 No cycle accuracy, wall time, dual issue, caches, or pipeline stalls are modeled.
 The milestone 1 `Machine` input timeline is still separate from CPU stepping;
 `--ticks` does not execute instructions. Milestone 4 adds a coordinated `System`
@@ -51,8 +52,8 @@ limitation, not a fabricated architectural Reserved Instruction exception.
 | Jumps | J, JAL, JR, JALR | Region-preserving immediate target; PC+8 link; delayed transfer; unaligned target faults on subsequent fetch |
 | Loads | LB, LBU, LH, LHU, LW, LWU, LD | Signed/unsigned extension, alignment, little-endian assembly, negative offsets |
 | Stores | SB, SH, SW, SD | Width truncation, alignment, atomic rejection of invalid accesses |
-| Exception instructions | SYSCALL, BREAK | Capture cause and EPC, then stop; optional instruction code bits accepted |
-| COP0 stage 1 | MFC0 BadVAddr (8), Cause (13), EPC (14) | Read-only observations, sign-extended to scalar register width |
+| Exception instructions | SYSCALL, BREAK | Dispatch general exception; optional instruction code bits accepted |
+| COP0 kernel subset | MFC0, MTC0, ERET | Status, Cause, EPC, ErrorEPC and exception/interrupt dispatch; see [interrupts.md](interrupts.md) |
 
 Word operations use low 32-bit operands deterministically; this is not a promise
 to reproduce hardware behavior for noncanonical operands that the architecture
@@ -63,7 +64,7 @@ interpretation of unpredictable behavior.
 Missing families include doubleword arithmetic/shifts, multiply/divide and
 HI/LO transfers, conditional moves, REGIMM and likely branches, trap comparisons,
 unaligned merge loads/stores, quadword transfers, MMI/SIMD, cache/synchronization,
-COP0 writes/TLB/ERET, all FPU/COP1 and VU/COP2 operations. No instruction in these
+other COP0 registers/TLB, all FPU/COP1 and VU/COP2 operations. No instruction in these
 families is treated as a successful no-op.
 
 ## Memory and exception staging
@@ -85,13 +86,12 @@ access checks. Host calls with invalid widths throw `std::invalid_argument`;
 guest access failures become actionable CPU stops.
 
 For arithmetic overflow (code 12), address errors (load/fetch 4, store 5),
-SYSCALL (8), and BREAK (9), the CPU records Cause.ExcCode and EPC. Cause.BD
-and the branch's EPC identify delay-slot faults, including untaken branches.
-BadVAddr updates only for address errors. Register/PC progress is held at the
-faulting instruction for inspection. This is **exception capture**, not full
-exception dispatch: Status/EXL, vector selection, nested exceptions, interrupts,
-TLB exceptions, and ERET are deferred. Unsupported translation/devices produce
-host-side stop records without pretending to implement their COP0 exceptions.
+SYSCALL (8), and BREAK (9), the CPU now enters a guest exception handler.
+INTC/DMAC lines can dispatch interrupts when enabled. EPC/BD preserve delay-slot
+context, EXL suppresses interrupt reentry, and ERET resumes the saved PC.
+See [interrupts.md](interrupts.md) for masks, nested exceptions, vectors,
+step budgets, and explicit limitations. Unsupported translation/devices still
+produce host-side stops without fabricated COP0 exceptions.
 
 ## Independent demo oracle
 

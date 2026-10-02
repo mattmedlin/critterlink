@@ -26,11 +26,13 @@ struct CpuStop {
     bool operator==(const CpuStop&) const = default;
 };
 
-// Stage 1 COP0: exception observations only; no exception vectors or ERET.
+// Kernel diagnostic subset; see docs/interrupts.md for supported Status bits.
 struct Cop0State {
     std::uint32_t bad_vaddr{};
     std::uint32_t cause{};
     std::uint32_t epc{};
+    std::uint32_t status{};
+    std::uint32_t error_epc{};
     bool operator==(const Cop0State&) const = default;
 };
 
@@ -53,6 +55,7 @@ struct InstructionTrace {
     bool delay_slot{};
     bool retired{};
     std::optional<CpuStop> stop;
+    std::optional<unsigned> exception;
     bool operator==(const InstructionTrace&) const = default;
 };
 
@@ -67,9 +70,10 @@ public:
     explicit Cpu(std::uint32_t entry = 0) noexcept;
     const CpuState& state() const noexcept;
     void reset(std::uint32_t entry = 0) noexcept;
-    // Debugger/test state import; enforces the hardwired zero register.
+    // Debugger/test state import; enforces r0 and rejects unsupported Status modes.
     void restore(CpuState state);
     InstructionTrace step(Memory& memory);
+    // Budget counts boundaries (including exception entries), not just retirements.
     RunResult run(Memory& memory, std::uint64_t budget,
                   std::vector<InstructionTrace>* trace = nullptr);
 

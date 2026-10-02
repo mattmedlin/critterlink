@@ -3,6 +3,7 @@
 #include "critterlink/demo.hpp"
 #include "critterlink/elf.hpp"
 #include "critterlink/hardware_demo.hpp"
+#include "critterlink/interrupt_demo.hpp"
 
 #include <charconv>
 #include <iostream>
@@ -23,7 +24,9 @@ void print_trace(const std::vector<critterlink::InstructionTrace>& trace) {
         if (entry.instruction) {
             std::cout << " opcode=0x" << std::setw(8) << *entry.instruction;
         }
-        std::cout << (entry.delay_slot ? " delay-slot" : "") << (entry.retired ? " retired\n" : " stopped\n");
+        std::cout << (entry.delay_slot ? " delay-slot" : "");
+        if (entry.exception) { std::cout << " exception=" << std::dec << *entry.exception << " dispatched\n"; }
+        else { std::cout << (entry.retired ? " retired\n" : " stopped\n"); }
     }
     std::cout << std::dec;
 }
@@ -151,9 +154,26 @@ int main(int argc, char** argv) {
     constexpr std::string_view usage = "Usage: critterlink [--ticks <unsigned integer>]\n"
                                               "       critterlink --demo [--steps N] [--trace]\n"
                                               "       critterlink --hardware-demo\n"
+                                              "       critterlink --interrupt-demo\n"
                                               "       critterlink --elf FILE [--steps N] [--trace] [--inspect ADDRESS]...\n"
                                               "       critterlink --help\n";
     critterlink::Tick ticks = 0;
+    if (argc == 2 && std::string_view(argv[1]) == "--interrupt-demo") {
+        try {
+            const auto result = critterlink::run_interrupt_demo();
+            std::cout << "Interrupt diagnostic: ticks=" << result.ticks
+                      << " timer-services=" << result.timer_services << " dma-services=" << result.dma_services
+                      << " sprite-pixels=" << result.colored_pixels
+                      << " acknowledged=" << result.interrupts_acknowledged << " returned=" << result.returned
+                      << " replay=" << (result.replay_identical ? "identical" : "MISMATCH") << '\n';
+            return result.ticks == 128 && result.timer_services == 1 && result.dma_services == 1 &&
+                   result.colored_pixels == 12 && result.interrupts_acknowledged && result.returned &&
+                   result.replay_identical ? 0 : 1;
+        } catch (const std::exception& error) {
+            std::cerr << "Interrupt diagnostic failed: " << error.what() << '\n';
+            return 1;
+        }
+    }
     if (argc == 2 && std::string_view(argv[1]) == "--hardware-demo") {
         try {
             const auto result = critterlink::run_hardware_demo();
@@ -166,7 +186,7 @@ int main(int argc, char** argv) {
             }
             std::cout << std::dec << "\nFilter-zero PCM:";
             for (unsigned n = 0; n < 4; ++n) { std::cout << ' ' << result.audio.samples[n]; }
-            std::cout << "\nDiagnostic primitives only; full IOP/SPU2 and guest interrupt dispatch remain unsupported.\n";
+            std::cout << "\nDiagnostic primitives only; full IOP/SPU2 remain unsupported. See --interrupt-demo for guest handlers.\n";
             return result.replay_identical ? 0 : 1;
         } catch (const std::exception& error) {
             std::cerr << "Hardware diagnostic failed: " << error.what() << '\n';

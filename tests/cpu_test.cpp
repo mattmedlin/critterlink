@@ -108,8 +108,8 @@ void test_alu() {
              {i(8, 1, 3, 1), 0x7fffffff, 0, 0}}}) {
         auto cpu = prepared(memory, c.instruction, c.a, c.b);
         const auto before = cpu.state();
-        check(!cpu.step(memory).retired && cpu.state().stop.has_value(), "overflow did not stop");
-        check(cpu.state().gpr == before.gpr && cpu.state().pc == 0, "overflow committed instruction");
+        check(!cpu.step(memory).retired && !cpu.state().stop, "overflow did not dispatch");
+        check(cpu.state().gpr == before.gpr && cpu.state().pc == 0x80000180 && (cpu.state().cop0.status & 2u), "overflow committed instruction");
         check(cpu.state().cop0.cause == 48 && cpu.state().cop0.epc == 0, "overflow exception fields");
     }
     auto zero = prepared(memory, i(9, 0, 0, 123));
@@ -119,7 +119,7 @@ void test_alu() {
     zero.step(memory);
     check(zero.state().gpr[0] == Register128{}, "zero register is writable");
     auto zero_overflow = prepared(memory, r(32, 1, 2, 0), 0x7fffffff, 1);
-    check(!zero_overflow.step(memory).retired && zero_overflow.state().stop.has_value(),
+    check(!zero_overflow.step(memory).retired && !zero_overflow.state().stop,
           "discarding destination suppressed overflow");
 }
 
@@ -233,20 +233,19 @@ void test_faults_and_cop0() {
     Memory memory;
     for (const auto instruction : {12u, 13u}) {
         auto cpu = prepared(memory, instruction | (123u << 6));
-        const auto result = cpu.run(memory, 10);
-        check(result == RunResult{0, false} && cpu.state().cop0.cause == (instruction == 12 ? 32u : 36u),
+        const auto result = cpu.run(memory, 1);
+        check(result == RunResult{0, true} && cpu.state().cop0.cause == (instruction == 12 ? 32u : 36u),
               "SYSCALL/BREAK exception code");
-        const auto saved = cpu.state();
-        check(cpu.run(memory, 10) == RunResult{0, false} && cpu.state() == saved, "stop is not sticky");
+        check(cpu.state().pc == 0x80000180 && !cpu.state().stop && (cpu.state().cop0.status & 2u),
+              "SYSCALL/BREAK did not dispatch");
     }
     for (bool taken : {false, true}) {
         auto cpu = prepared(memory, i(4, 1, 0, 3), taken ? 0 : 1);
         memory.write(4, 4, i(35, 0, 3, 1));
-        check(cpu.run(memory, 5).retired == 1, "delay slot fault retirement");
+        check(cpu.run(memory, 2).retired == 1, "delay slot fault retirement");
         check(cpu.state().cop0.cause == 0x80000010 && cpu.state().cop0.epc == 0 &&
-              cpu.state().cop0.bad_vaddr == 1 && cpu.state().pc == 4, "delay slot exception state");
-        check(cpu.state().stop->diagnostic.find("delay-slot-of=0x00000000") != std::string::npos,
-              "missing delay-slot diagnostic");
+              cpu.state().cop0.bad_vaddr == 1 && cpu.state().pc == 0x80000180, "delay slot exception state");
+        check(!cpu.state().stop && !cpu.state().delay_slot, "delay slot dispatch stopped CPU");
     }
     auto store = prepared(memory, i(43, 0, 2, 0x101), 0, 0xffff);
     memory.write(0x100, 8, 0x1234);
@@ -258,7 +257,7 @@ void test_faults_and_cop0() {
           fetch.state().cop0.epc == 3 && fetch.state().cop0.bad_vaddr == 3, "misaligned fetch");
     auto jump = prepared(memory, r(8, 1, 0, 0), 3);
     memory.write(4, 4, i(9, 0, 3, 7));
-    check(jump.run(memory, 4).retired == 2 && jump.state().gpr[3].low == 7 &&
+    check(jump.run(memory, 3).retired == 2 && jump.state().gpr[3].low == 7 &&
           jump.state().cop0.epc == 3 && jump.state().cop0.cause == 16,
           "misaligned jump target faulted before its delay slot");
     Cpu missing(0xbfc00000);
@@ -276,8 +275,8 @@ void test_faults_and_cop0() {
           !end_of_ram.state().stop->instruction &&
           end_of_ram.state().stop->diagnostic.find("delay-slot-of=0x81fffffc") != std::string::npos,
           "delay-slot fetch failure lost branch context");
-    for (std::uint32_t instruction : {0x70000000u, 0x44000000u, 0x48000000u, 0x40816000u,
-                                      0x40016000u, r(0, 1, 2, 3), r(33, 1, 2, 3, 1),
+    for (std::uint32_t instruction : {0x70000000u, 0x44000000u, 0x48000000u, 0x40816800u,
+                                      0x40016001u, r(0, 1, 2, 3), r(33, 1, 2, 3, 1),
                                       i(15, 1, 3, 0), i(6, 1, 2, 0)}) {
         auto cpu = prepared(memory, instruction);
         const auto before = cpu.state();
