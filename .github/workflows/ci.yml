@@ -1,0 +1,37 @@
+name: Build and test
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  build:
+    name: ${{ matrix.os }} / ${{ matrix.arch }} / ${{ matrix.config }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [Debug, Release]
+        os: [ubuntu-24.04, windows-2022, macos-14, macos-15-intel]
+        include:
+          - os: ubuntu-24.04
+            arch: x64
+          - os: windows-2022
+            arch: x64
+          - os: macos-14
+            arch: arm64
+          - os: macos-15-intel
+            arch: x64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify native runner architecture
+        shell: bash
+        env:
+          EXPECTED_ARCH: ${{ matrix.arch }}
+        run: |
+          echo "Runner: $RUNNER_OS / $RUNNER_ARCH"
+          test "$(echo "$RUNNER_ARCH" | tr '[:upper:]' '[:lower:]')" = "$EXPECTED_ARCH"
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.config }}
+      - name: Build
+        run: cmake --build build --config ${{ matrix.config }} --parallel
+      - name: Test
+        run: ctest --test-dir build -C ${{ matrix.config }} --output-on-failure
