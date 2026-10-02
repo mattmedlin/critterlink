@@ -101,8 +101,9 @@ void test_rejections(const std::vector<std::uint8_t>& fixture) {
     const auto patch16 = [&](std::size_t at, std::uint32_t value, const char* name) {
         auto file = fixture; put16(file, at, value); reject(file, name);
     };
-    for (const auto& [at, value] : std::vector<std::pair<std::size_t, std::uint8_t>>{
-             {0, 0}, {4, 2}, {5, 2}, {6, 0}, {7, 3}, {8, 1}}) {
+    struct IdentChange { std::size_t offset; std::uint8_t value; };
+    const IdentChange ident_changes[]{{0, 0}, {4, 2}, {5, 2}, {6, 0}, {7, 3}, {8, 1}};
+    for (const auto& [at, value] : ident_changes) {
         auto file = fixture; file.at(at) = value; reject(file, "ident");
     }
     patch16(16, 3, "ET_DYN"); patch16(18, 62, "wrong machine"); patch32(20, 2, "header version");
