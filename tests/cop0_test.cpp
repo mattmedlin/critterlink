@@ -95,7 +95,7 @@ void test_dispatch() {
         state.cop0.status = bev ? 0x400000u : 0;
         cpu.restore(state);
         const auto trace = cpu.step(memory);
-        check(trace.exception == 8 && !trace.retired && !trace.stop && trace.instruction == 12 &&
+        check(trace.exception == 8u && !trace.retired && !trace.stop && trace.instruction == 12u &&
               cpu.state().pc == (bev ? 0xbfc00380u : 0x80000180u) && cpu.state().cop0.epc == 0 &&
               cpu.state().cop0.status == (state.cop0.status | 2u), "general exception vector");
         if (bev) { check(cpu.step(memory).stop->kind == StopKind::unsupported_access, "boot ROM silently emulated"); }
@@ -108,7 +108,7 @@ void test_dispatch() {
         state.gpr[3].low = 0x5678;
         cpu.restore(state);
         const auto trace = cpu.step(memory);
-        check(trace.exception == 4 && cpu.state().cop0.epc == 0x1234 &&
+        check(trace.exception == 4u && cpu.state().cop0.epc == 0x1234 &&
               cpu.state().cop0.cause == (bd ? 0x80000010u : 0x10u) &&
               cpu.state().cop0.bad_vaddr == 3 && cpu.state().gpr == state.gpr,
               "nested EXL exception lost original EPC/BD or failed current cause/address");
@@ -122,7 +122,7 @@ void test_dispatch() {
         cpu.restore(state);
         check(cpu.step(memory).retired, "branch before exception failed");
         const auto trace = cpu.step(memory);
-        check(trace.delay_slot && trace.pc == 4 && trace.exception == 9 && !trace.retired &&
+        check(trace.delay_slot && trace.pc == 4 && trace.exception == 9u && !trace.retired &&
               cpu.state().cop0.epc == 0 && cpu.state().cop0.cause == 0x80000024 &&
               !cpu.state().delay_slot && cpu.state().pc == 0x80000180,
               "taken/untaken synchronous delay-slot exception");
