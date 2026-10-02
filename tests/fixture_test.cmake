@@ -1,0 +1,13 @@
+execute_process(COMMAND "${PYTHON}" "${BUILDER}" --output "${FIXTURE}.rebuilt"
+  RESULT_VARIABLE code ERROR_VARIABLE error TIMEOUT 10)
+if(NOT code EQUAL 0)
+  message(FATAL_ERROR "Fixture rebuild failed: ${error}")
+endif()
+file(SHA256 "${FIXTURE}" original)
+file(SHA256 "${FIXTURE}.rebuilt" rebuilt)
+if(NOT original STREQUAL rebuilt)
+  message(FATAL_ERROR "Fixture rebuild was not reproducible")
+endif()
+if(NOT original STREQUAL "37c04ec4048dc85f33abfc9c237b34f5d16b1c5e432f6573203508ba36aa64fc")
+  message(FATAL_ERROR "Fixture bytes differ from the cross-platform reference image")
+endif()

@@ -2,12 +2,14 @@
 
 A from-scratch C++ PS2 emulator project targeting Windows, macOS (including
 Apple Silicon), and Linux. **This is an experimental CPU slice, not a working
-PS2 emulator. It cannot boot firmware or run games or homebrew ELF files.**
+PS2 emulator. It runs the included bare-metal ELF fixture, but cannot boot
+firmware or run games; general homebrew compatibility is not established.**
 
 ## Build and test
 
 Requirements: CMake 3.20+, a C++20 compiler and standard library, and a native
-build tool. Recommended toolchains are Visual Studio 2022 with Desktop
+build tool. Python 3.8+ is also required to generate the included ELF fixture
+(no Python packages are needed). Recommended toolchains are Visual Studio 2022 with Desktop
 development with C++ on Windows, Xcode Command Line Tools (Apple Clang 15+) on
 macOS, or GCC 12+ / Clang 15+ on Linux. CMake must be installed separately and
 available on PATH. No third-party runtime or test packages are required.
@@ -25,7 +27,8 @@ Visual Studio generator, run `.\build\Debug\critterlink.exe --ticks 1000`.
 Use a separate `build-release` directory with `Release` in place of `Debug` to
 check an optimized build. `CMAKE_BUILD_TYPE` applies to single-configuration
 generators; `--config` and `-C` select the configuration for Visual Studio/Xcode.
-To build only the core and CLI, configure with `-DBUILD_TESTING=OFF`.
+To build only the core and CLI without Python, configure with
+`-DBUILD_TESTING=OFF -DCRITTERLINK_BUILD_FIXTURE=OFF`.
 
 The CLI defaults to zero ticks and exits. `--ticks N` advances the foundation's
 logical clock by an unsigned 64-bit decimal count; `--help` prints usage.
@@ -43,6 +46,16 @@ the demo's expected endpoint. On Windows use the executable path shown above.
 See [CPU coverage](docs/cpu-coverage.md) for the instruction matrix, memory map,
 exception limitations, independent demo results, and reference manuals.
 
+The first ELF fixture is built automatically. Run it with:
+
+```sh
+./build/critterlink --elf build/fixtures/sum.elf --steps 100 --inspect 0x00101010 --inspect 0x00101014
+```
+
+The expected words are `0x4b4e4c43` (completion marker) and `0x0000000f`
+(sum = 15). See [homebrew instructions](docs/homebrew.md) for its source/license,
+reproducible build, complete signature, accepted ELF profile, and runtime limits.
+
 ## Architecture
 
 - `critterlink_core`: platform-independent static library using only C++ standard
@@ -51,6 +64,7 @@ exception limitations, independent demo results, and reference manuals.
 - `critterlink`: small host CLI responsible for arguments and console output.
 - `critterlink_tests`: dependency-free checks that remain active in Release.
 - `critterlink_cpu_tests`: interpreter, RAM bus, and deterministic execution tests.
+- `critterlink_elf_tests`: ELF validation, atomic rejection, loading, and fixture execution.
 
 `MachineState` explicitly holds the current logical tick and two controller
 samples. `Machine` owns a validated, immutable input timeline plus its playback
@@ -88,8 +102,8 @@ a successful remote run.
 
 ## Scope and provenance
 
-A bounded scalar CPU subset and bootstrap RAM bus are implemented. ELF loading,
-BIOS boot, full CPU/COP0 execution, TLB, graphics, sound, storage, PS2 peripherals,
+A bounded scalar CPU subset, bootstrap RAM bus, and a narrow static ELF loader
+are implemented. BIOS boot, full CPU/COP0 execution, TLB, graphics, sound, storage, PS2 peripherals,
 desktop UI, game compatibility, and networking remain unimplemented. Later
 milestones will add them incrementally. No game compatibility or performance
 claims are made by this slice.

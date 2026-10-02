@@ -1,8 +1,9 @@
 # CPU slice (milestone 2)
 
 This is a from-scratch interpreter for a deliberately small subset of the EE
-scalar instruction set. It runs synthetic instruction words, not a BIOS,
-homebrew ELF, or game. Passing these tests does not establish PS2 compatibility.
+scalar instruction set. It originally ran synthetic instruction words;
+milestone 3 adds the [included bare-metal ELF fixture](homebrew.md). It does not
+boot a BIOS or run games. Passing these tests does not establish PS2 compatibility.
 
 ## Execution contract
 

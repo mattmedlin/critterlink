@@ -10,6 +10,14 @@ semantics are linked in [docs/cpu-coverage.md](docs/cpu-coverage.md); their text
 and example implementations are not vendored. The sum-loop program and expected
 results were independently specified for this repository.
 
+Milestone 3 adds an original static ELF loader and a bare-metal homebrew fixture.
+The `fixtures/sum` source, builder, and generated ELF are explicitly MIT-licensed
+under `fixtures/sum/LICENSE`. No SDK or external program binary is included.
+The loader's format reference and fixture's reproducible build/limitations are
+documented in [docs/homebrew.md](docs/homebrew.md). Python 3.8+ (PSF License) is
+a build-only dependency for packing the fixture; no Python packages or runtime
+are linked into Critterlink. See https://docs.python.org/3/license.html.
+
 There are no vendored or downloaded C++ dependencies. The core, CLI, and tests
 use the C++ standard library provided by the selected compiler. Its distribution
 and runtime terms depend on the toolchain (MSVC, Apple Clang/libc++, or GCC/libstdc++).
@@ -22,7 +30,7 @@ Build/development tools are not linked into Critterlink:
 | CMake / CTest | Configure, build orchestration, tests | BSD 3-Clause; https://cmake.org/licensing/ |
 | actions/checkout | GitHub CI source checkout | MIT; https://github.com/actions/checkout/blob/v4/LICENSE |
 
-No project-wide distribution license has been selected yet. Do not assume an
+Apart from the explicitly licensed fixture, no project-wide distribution license has been selected yet. Do not assume an
 open-source license merely because the repository is accessible. The owner
 should choose one before distributing releases or accepting external code.
 

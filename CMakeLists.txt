@@ -13,13 +13,25 @@ function(critterlink_target target)
   endif()
 endfunction()
 
-add_library(critterlink_core STATIC src/machine.cpp src/memory.cpp src/cpu.cpp)
+add_library(critterlink_core STATIC src/machine.cpp src/memory.cpp src/cpu.cpp src/elf.cpp)
 target_include_directories(critterlink_core PUBLIC include)
 critterlink_target(critterlink_core)
 
 add_executable(critterlink src/main.cpp)
 target_link_libraries(critterlink PRIVATE critterlink_core)
 critterlink_target(critterlink)
+
+option(CRITTERLINK_BUILD_FIXTURE "Build the redistributable homebrew ELF (requires Python 3)" ON)
+if(CRITTERLINK_BUILD_FIXTURE)
+  find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
+  set(HOMEBREW_ELF "${CMAKE_CURRENT_BINARY_DIR}/fixtures/sum.elf")
+  add_custom_command(OUTPUT "${HOMEBREW_ELF}"
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/sum/build.py"
+      --output "${HOMEBREW_ELF}"
+    DEPENDS fixtures/sum/build.py fixtures/sum/sum.S
+    VERBATIM)
+  add_custom_target(homebrew_fixture ALL DEPENDS "${HOMEBREW_ELF}")
+endif()
 
 if(BUILD_TESTING)
   add_executable(critterlink_tests tests/machine_test.cpp)
@@ -30,6 +42,20 @@ if(BUILD_TESTING)
   target_link_libraries(critterlink_cpu_tests PRIVATE critterlink_core)
   critterlink_target(critterlink_cpu_tests)
   add_test(NAME cpu_memory COMMAND critterlink_cpu_tests)
+  if(CRITTERLINK_BUILD_FIXTURE)
+    add_executable(critterlink_elf_tests tests/elf_test.cpp)
+    target_link_libraries(critterlink_elf_tests PRIVATE critterlink_core)
+    critterlink_target(critterlink_elf_tests)
+    add_dependencies(critterlink_elf_tests homebrew_fixture)
+    add_test(NAME elf_loader COMMAND critterlink_elf_tests "${HOMEBREW_ELF}")
+    add_test(NAME elf_cli COMMAND ${CMAKE_COMMAND}
+      -DCLI=$<TARGET_FILE:critterlink> -DFIXTURE=${HOMEBREW_ELF}
+      -DWORK=${CMAKE_CURRENT_BINARY_DIR}/elf-cli-tests
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/elf_cli_test.cmake)
+    add_test(NAME fixture_reproducible COMMAND ${CMAKE_COMMAND}
+      -DPYTHON=${Python3_EXECUTABLE} -DBUILDER=${CMAKE_CURRENT_SOURCE_DIR}/fixtures/sum/build.py
+      -DFIXTURE=${HOMEBREW_ELF} -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/fixture_test.cmake)
+  endif()
   add_test(NAME cli_contract COMMAND ${CMAKE_COMMAND}
     -DCLI=$<TARGET_FILE:critterlink> -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/cli_test.cmake)
 endif()

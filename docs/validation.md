@@ -53,3 +53,14 @@ and macOS x86-64 configured, built, and passed all three test suites.
 The first Windows build exposed a byte-fill type-conversion warning; using
 an explicitly byte-typed fill value resolved it without disabling warnings.
 The final code also passed the local address/undefined-behavior sanitizer run.
+
+## Milestone 3 local validation
+
+On October 1, 2026 (America/New_York), native Apple Silicon Debug, Release,
+and address/undefined-behavior sanitizer builds passed all six suites: `core`,
+`cpu_memory`, `elf_loader`, `elf_cli`, `fixture_reproducible`, and `cli_contract`.
+The homebrew ELF produced the five expected signature words documented in
+[homebrew.md](homebrew.md). The loader suite rejects every truncated prefix
+and malformed-header/segment cases while checking that the full RAM image and
+CPU state remain unchanged. The fixture rebuild is checked against a fixed
+SHA-256 value so all supported hosts must execute identical guest bytes.
