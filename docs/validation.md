@@ -45,3 +45,11 @@ The demo produced the independently specified results in
 [cpu-coverage.md](cpu-coverage.md). Tests include arithmetic boundaries, delay
 slots, memory aliases/endianness/alignment, exception observations, deterministic
 replay, unsupported-opcode diagnostics, and CLI exit behavior.
+
+Remote verification passed for commit `32729f6` in
+[GitHub Actions run 36949045430](https://github.com/mattmedlin/critterlink/actions/runs/36949045430):
+all eight Debug/Release jobs on Windows x86-64, Linux x86-64, macOS ARM64,
+and macOS x86-64 configured, built, and passed all three test suites.
+The first Windows build exposed a byte-fill type-conversion warning; using
+an explicitly byte-typed fill value resolved it without disabling warnings.
+The final code also passed the local address/undefined-behavior sanitizer run.
