@@ -2,6 +2,7 @@
 #include "critterlink/cpu.hpp"
 #include "critterlink/demo.hpp"
 #include "critterlink/elf.hpp"
+#include "critterlink/hardware_demo.hpp"
 
 #include <charconv>
 #include <iostream>
@@ -75,15 +76,16 @@ int run_elf(int argc, char** argv) {
         if (!file.empty() && !stream.read(reinterpret_cast<char*>(file.data()), static_cast<std::streamsize>(file.size()))) {
             throw std::runtime_error("cannot read complete ELF file");
         }
-        critterlink::Memory memory;
-        critterlink::Cpu cpu;
+        critterlink::System system;
+        auto& memory = system.memory();
+        auto& cpu = system.cpu();
         for (const auto address : inspect) { memory.read(address, 4); }
         const auto image = critterlink::load_elf(file, memory, cpu);
         std::cout << "ELF loaded: entry=0x" << std::hex << std::setfill('0') << std::setw(8) << image.entry
                   << std::dec << " segments=" << image.segments << " file-bytes=" << image.file_bytes
                   << " memory-bytes=" << image.memory_bytes << '\n';
         std::vector<critterlink::InstructionTrace> trace;
-        const auto result = cpu.run(memory, steps, tracing ? &trace : nullptr);
+        const auto result = system.run(steps, tracing ? &trace : nullptr);
         print_trace(trace);
         std::cout << "ELF run: retired=" << result.retired << " pc=0x" << std::hex << std::setw(8) << cpu.state().pc
                   << (result.budget_exhausted ? " budget-exhausted\n" : " stopped\n");
@@ -94,6 +96,10 @@ int run_elf(int argc, char** argv) {
         std::cout << std::dec;
         if (cpu.state().stop) {
             std::cerr << cpu.state().stop->diagnostic << '\n';
+            return 1;
+        }
+        if (memory.hardware().stop()) {
+            std::cerr << *memory.hardware().stop() << '\n';
             return 1;
         }
         return 0;
@@ -144,9 +150,29 @@ int run_demo(int argc, char** argv) {
 int main(int argc, char** argv) {
     constexpr std::string_view usage = "Usage: critterlink [--ticks <unsigned integer>]\n"
                                               "       critterlink --demo [--steps N] [--trace]\n"
+                                              "       critterlink --hardware-demo\n"
                                               "       critterlink --elf FILE [--steps N] [--trace] [--inspect ADDRESS]...\n"
                                               "       critterlink --help\n";
     critterlink::Tick ticks = 0;
+    if (argc == 2 && std::string_view(argv[1]) == "--hardware-demo") {
+        try {
+            const auto result = critterlink::run_hardware_demo();
+            std::cout << "Hardware diagnostic: ticks=" << result.ticks << " sprite-pixels=" << result.colored_pixels
+                      << " int0=" << result.timer_interrupt << " int1=" << result.dma_interrupt
+                      << " replay=" << (result.replay_identical ? "identical" : "MISMATCH") << '\n';
+            std::cout << "Digital pad reply:";
+            for (const auto byte : result.pad_reply) {
+                std::cout << ' ' << std::hex << std::setfill('0') << std::setw(2) << static_cast<unsigned>(byte);
+            }
+            std::cout << std::dec << "\nFilter-zero PCM:";
+            for (unsigned n = 0; n < 4; ++n) { std::cout << ' ' << result.audio.samples[n]; }
+            std::cout << "\nDiagnostic primitives only; full IOP/SPU2 and guest interrupt dispatch remain unsupported.\n";
+            return result.replay_identical ? 0 : 1;
+        } catch (const std::exception& error) {
+            std::cerr << "Hardware diagnostic failed: " << error.what() << '\n';
+            return 1;
+        }
+    }
     if (argc >= 2 && std::string_view(argv[1]) == "--elf") {
         return run_elf(argc, argv);
     }

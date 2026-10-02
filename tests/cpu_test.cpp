@@ -189,7 +189,7 @@ void test_memory() {
     struct FaultCase { std::uint32_t address; unsigned width; MemoryError reason; };
     for (const auto& c : std::array<FaultCase, 5>{{
              {3, 4, MemoryError::alignment}, {0x82000000, 4, MemoryError::unmapped},
-             {0x90000000, 4, MemoryError::unmapped}, {0xc0000000, 4, MemoryError::translation},
+             {0x9000f020, 4, MemoryError::device}, {0xc0000000, 4, MemoryError::translation},
              {0xfffffffc, 8, MemoryError::alignment}}}) {
         const auto before = memory.read(0x100, 8);
         bool caught = false;
@@ -264,7 +264,7 @@ void test_faults_and_cop0() {
     Cpu missing(0xbfc00000);
     check(missing.step(memory).stop->kind == StopKind::unsupported_access, "firmware fetch silently accepted");
     for (unsigned op : {35u, 43u}) {
-        auto cpu = prepared(memory, i(op, 1, 3), 0x90000000);
+        auto cpu = prepared(memory, i(op, 1, 3), 0x9000f020);
         const auto before = cpu.state();
         check(cpu.step(memory).stop->kind == StopKind::unsupported_access &&
               cpu.state().gpr == before.gpr && cpu.state().cop0 == before.cop0,

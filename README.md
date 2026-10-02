@@ -56,6 +56,13 @@ The expected words are `0x4b4e4c43` (completion marker) and `0x0000000f`
 (sum = 15). See [homebrew instructions](docs/homebrew.md) for its source/license,
 reproducible build, complete signature, accepted ELF profile, and runtime limits.
 
+The first hardware diagnostic is available with `./build/critterlink --hardware-demo`.
+It exercises guest-configured timer/INTC/GIF DMA, a headless sprite renderer, and
+mid-transfer restoration. It also reports separate digital-pad and filter-zero
+audio-decoder checks. Expected output includes `sprite-pixels=12`, `int0=1`,
+`int1=1`, and `replay=identical`. Full IOP/SPU2 and guest interrupt dispatch are
+still missing. See the [milestone 4 plan and status](docs/hardware-plan.md).
+
 ## Architecture
 
 - `critterlink_core`: platform-independent static library using only C++ standard
@@ -65,6 +72,11 @@ reproducible build, complete signature, accepted ELF profile, and runtime limits
 - `critterlink_tests`: dependency-free checks that remain active in Release.
 - `critterlink_cpu_tests`: interpreter, RAM bus, and deterministic execution tests.
 - `critterlink_elf_tests`: ELF validation, atomic rejection, loading, and fixture execution.
+- `System`: CPU/device scheduling and complete in-memory snapshots; `--elf`
+  runs through this coordinated path using one logical device tick per retired
+  instruction (not calibrated PS2 timing).
+- Additional scheduler, hardware, system, graphics and peripherals suites test
+  the bounded subsystem contracts and restoration.
 
 `MachineState` explicitly holds the current logical tick and two controller
 samples. `Machine` owns a validated, immutable input timeline plus its playback
@@ -102,9 +114,11 @@ a successful remote run.
 
 ## Scope and provenance
 
-A bounded scalar CPU subset, bootstrap RAM bus, and a narrow static ELF loader
-are implemented. BIOS boot, full CPU/COP0 execution, TLB, graphics, sound, storage, PS2 peripherals,
-desktop UI, game compatibility, and networking remain unimplemented. Later
+A bounded scalar CPU subset, bootstrap RAM bus, static ELF loader, timer/INTC
+register subset, normal GIF DMA and diagnostic sprite renderer are implemented.
+BIOS boot, full CPU/COP0 execution, TLB, VIF/VU, IOP/SIF, full GS/SPU2, storage,
+SIO2 device integration, desktop UI, game compatibility, and networking remain
+unimplemented. Later
 milestones will add them incrementally. No game compatibility or performance
 claims are made by this slice.
 

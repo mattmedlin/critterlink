@@ -30,7 +30,9 @@ delay-slot status, retirement status, and any stop diagnostic for each attempted
 instruction. Traces append across runs; callers control their lifetime/size.
 No cycle accuracy, wall time, dual issue, caches, or pipeline stalls are modeled.
 The milestone 1 `Machine` input timeline is still separate from CPU stepping;
-`--ticks` does not execute instructions. Hardware scheduling comes later.
+`--ticks` does not execute instructions. Milestone 4 adds a coordinated `System`
+runner used by `--elf`; see [hardware-plan.md](hardware-plan.md). Direct
+`Cpu::run` remains CPU-only and does not advance devices.
 
 ## Instruction matrix
 
@@ -72,7 +74,9 @@ TLB. Kernel aliases `0x80000000–0x81ffffff` and `0xa0000000–0xa1ffffff` shar
 those bytes via direct translation. Cache attributes and privilege permissions
 are not modeled. Other kernel direct-map addresses fail as unimplemented memory
 or devices; other virtual addresses fail as unsupported translation. There is
-no arbitrary address masking into RAM, BIOS, MMIO, scratchpad, or RAM mirroring.
+no arbitrary address masking into RAM, BIOS, scratchpad, or RAM mirroring.
+Milestone 4 adds explicit timer/INTC/GIF-DMA MMIO within the EE hardware window;
+other registers still fail. See [the register profile](hardware-plan.md).
 
 The bus accepts widths 1, 2, 4, and 8, validates alignment and the entire range
 before a write, and explicitly assembles little-endian values without host

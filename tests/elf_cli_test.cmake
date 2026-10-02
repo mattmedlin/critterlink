@@ -30,7 +30,7 @@ run(0 "inspect.0x00101010.=0x00000000" --elf "${FIXTURE}" --steps 0 --inspect 0x
 run(0 "pc=0x0010001c opcode=0x24630001 delay-slot retired" --elf "${FIXTURE}" --steps 34 --trace)
 run(1 "cannot open ELF file" --elf "${WORK}/missing.elf")
 run(1 "ELF:" --elf "${WORK}/bad.elf")
-run(1 "address has no RAM" --elf "${FIXTURE}" --inspect 0x90000000)
+run(1 "unsupported EE hardware register" --elf "${FIXTURE}" --inspect 0x9000f020)
 run(2 "Usage:" --elf)
 run(2 "Usage:" --elf "${FIXTURE}" --steps)
 run(2 "Usage:" --elf "${FIXTURE}" --trace --trace)

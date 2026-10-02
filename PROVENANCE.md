@@ -18,6 +18,15 @@ documented in [docs/homebrew.md](docs/homebrew.md). Python 3.8+ (PSF License) is
 a build-only dependency for packing the fixture; no Python packages or runtime
 are linked into Critterlink. See https://docs.python.org/3/license.html.
 
+The milestone 4 foundation (scheduler, timer/INTC/DMA registers, bounded GIF/GS
+renderer, digital pad and filter-zero ADPCM primitives) was also authored from
+scratch with Codex/subagent assistance. Its small instruction, GIF, serial and
+audio fixtures are original synthetic data. Reference manuals and primary SDK
+documentation are linked in `docs/hardware-plan.md`, `docs/graphics.md` and
+`docs/peripherals.md`. No emulator implementation or media was imported, and no
+graphics/audio runtime dependency was added. The foundation does not change the
+scope of the existing fixture-only MIT license.
+
 There are no vendored or downloaded C++ dependencies. The core, CLI, and tests
 use the C++ standard library provided by the selected compiler. Its distribution
 and runtime terms depend on the toolchain (MSVC, Apple Clang/libc++, or GCC/libstdc++).

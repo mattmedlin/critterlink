@@ -73,3 +73,19 @@ checks. The first Windows build caught a test-data narrowing warning; replacing
 the forwarding pair constructor with byte-typed aggregate initialization fixed
 it without relaxing compiler warnings. The affected loader suite also passed
 again with address/undefined-behavior sanitizers after that test-only fix.
+
+## Milestone 4 first-delivery validation
+
+On October 2, 2026 (America/New_York), native Apple Silicon Debug, Release,
+and address/undefined-behavior sanitizer builds passed all eleven suites.
+The five added suites cover scheduling, timers/INTC/GIF DMA, strict GIF sprite
+rendering, peripheral primitives, and coordinated system restoration. Tests
+check exact pixels and PCM samples, interrupt flags, unsupported operations,
+time overflow, atomic rejection of invalid snapshots, and replay from partial
+DMA, GIF, and pad transactions. All earlier CPU/ELF/CLI fixtures still pass.
+
+`--hardware-demo` reports 64 logical ticks, 12 sprite pixels, both interrupt
+lines asserted, identical replay, pad bytes `ff 41 5a ff bf`, and initial PCM
+samples `28672 -32768 4096 -4096`. These validate the explicitly bounded
+[hardware profile](hardware-plan.md), not complete PS2 hardware, calibrated
+timing, guest interrupt handling, IOP/SIO2, or register-driven SPU2 audio.

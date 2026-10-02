@@ -13,7 +13,8 @@ function(critterlink_target target)
   endif()
 endfunction()
 
-add_library(critterlink_core STATIC src/machine.cpp src/memory.cpp src/cpu.cpp src/elf.cpp)
+add_library(critterlink_core STATIC src/machine.cpp src/memory.cpp src/cpu.cpp src/elf.cpp
+  src/scheduler.cpp src/graphics.cpp src/peripherals.cpp src/hardware.cpp src/system.cpp src/hardware_demo.cpp)
 target_include_directories(critterlink_core PUBLIC include)
 critterlink_target(critterlink_core)
 
@@ -34,6 +35,12 @@ if(CRITTERLINK_BUILD_FIXTURE)
 endif()
 
 if(BUILD_TESTING)
+  foreach(subsystem IN ITEMS scheduler graphics peripherals hardware system)
+    add_executable(critterlink_${subsystem}_tests tests/${subsystem}_test.cpp)
+    target_link_libraries(critterlink_${subsystem}_tests PRIVATE critterlink_core)
+    critterlink_target(critterlink_${subsystem}_tests)
+    add_test(NAME ${subsystem} COMMAND critterlink_${subsystem}_tests)
+  endforeach()
   add_executable(critterlink_tests tests/machine_test.cpp)
   target_link_libraries(critterlink_tests PRIVATE critterlink_core)
   critterlink_target(critterlink_tests)
