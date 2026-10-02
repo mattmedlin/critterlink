@@ -23,7 +23,14 @@ valid tick counts including the 64-bit maximum, malformed/empty/overflowing
 counts, missing values, unknown flags, extra arguments, output streams, and
 exit codes. CLI test subprocesses have timeouts to catch unexpected hangs.
 
-The Windows, Linux, and Intel macOS jobs are configured but have not yet been
-run remotely. A successful GitHub Actions run is still needed before marking
-the issue's three-OS fresh-checkout acceptance criterion complete. No PS2
-software was run, and no hardware emulation or game compatibility was verified.
+Remote verification also passed on October 1, 2026 (America/New_York), for
+commit `1f2be81291a4542cc11fc9232b5b130576f60346`:
+
+- Windows x86-64, Linux x86-64, macOS ARM64, and macOS x86-64.
+- Debug and Release on every platform: all eight jobs passed architecture
+  checks, fresh-checkout configuration, compilation, and both CTest suites.
+- [Successful GitHub Actions run](https://github.com/mattmedlin/critterlink/actions/runs/36946575644).
+
+This satisfies the milestone's cross-platform build/test acceptance criterion.
+No PS2 software was run, and no hardware emulation or game compatibility was
+verified.
