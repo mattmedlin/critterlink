@@ -227,3 +227,11 @@ images. Host file persistence, filesystems, card authentication/ECC, commercial
 media, complete controller protocols and IOP interrupt dispatch remain unsupported.
 Logical transfer timing and undocumented status-bit policies are not hardware
 conformance claims. Umbrella #4 stays open pending combined integration in #15.
+
+Remote verification passed for `344f0a8` in
+[GitHub Actions run 37089983374](https://github.com/mattmedlin/critterlink/actions/runs/37089983374):
+all eight Debug/Release jobs on Windows x86-64, Linux x86-64, macOS ARM64 and
+macOS x86-64 built with strict warnings and passed all twenty-four suites.
+Windows exposed implicit integer-to-byte conversions in `fill` calls in the
+device and its test; explicit byte constants fixed both without changing
+behavior or compiler settings. The affected sanitizer suite passed again.
