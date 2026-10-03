@@ -194,3 +194,8 @@ The [SPU2 profile](spu.md) explicitly limits voices, pitch and envelope modes.
 Logical sample timing, no interpolation and integer rounding are diagnostic
 policies; these checks do not establish physical SPU2 waveform conformance,
 firmware audio support or host audio playback. Umbrella #4 remains open.
+
+Remote verification passed for `a0716c0` in
+[GitHub Actions run 37086761240](https://github.com/mattmedlin/critterlink/actions/runs/37086761240):
+all eight Debug/Release jobs on Windows x86-64, Linux x86-64, macOS ARM64 and
+macOS x86-64 built with strict warnings and passed all twenty-one suites.
