@@ -121,7 +121,8 @@ InstructionTrace Cpu::step(Memory& memory) {
             next.delay_slot = true;
             next.branch_pc = pc;
         };
-        const bool control = op == 2 || op == 3 || (op >= 4 && op <= 7) ||
+        const bool control = op == 1 || op == 2 || op == 3 || (op >= 4 && op <= 7) ||
+                             (op >= 20 && op <= 23) ||
                              (op == 0 && (function == 8 || function == 9));
         if (control && state_.delay_slot) {
             return fail(StopKind::delay_slot_branch,
@@ -137,6 +138,64 @@ InstructionTrace Cpu::step(Memory& memory) {
             }
             write(destination, sign_extend(result, 32));
             return true;
+        };
+
+        const auto add_doubleword = [&](std::uint64_t left, std::uint64_t right,
+                                        unsigned destination, bool trap, bool subtract) {
+            const auto result = subtract ? left - right : left + right;
+            const auto overflow = subtract ? ((left ^ right) & (left ^ result)) :
+                                             (~(left ^ right) & (left ^ result));
+            if (trap && (overflow & (std::uint64_t{1} << 63)) != 0) return false;
+            write(destination, result);
+            return true;
+        };
+
+        const auto hilo = [&](bool pipeline1, unsigned operation) -> std::optional<InstructionTrace> {
+            auto& hi = pipeline1 ? next.hi.high : next.hi.low;
+            auto& lo = pipeline1 ? next.lo.high : next.lo.low;
+            if (operation >= 16 && operation <= 19) {
+                const bool to_hilo = (operation & 1U) != 0;
+                if (shift != 0 || rt != 0 || (to_hilo ? rd != 0 : rs != 0)) return unsupported();
+                auto& selected = (operation & 2U) != 0 ? lo : hi;
+                if (to_hilo) selected = a;
+                else write(rd, selected);
+                return {};
+            }
+            const bool divide = operation == 26 || operation == 27;
+            if (shift != 0 || (divide && rd != 0)) return unsupported();
+            if (a != sign_extend(word_a, 32) || b != sign_extend(word_b, 32)) {
+                return fail(StopKind::unsupported_instruction,
+                    "noncanonical word multiply/divide operands have undefined hardware results");
+            }
+            const bool unsigned_operation = (operation & 1U) != 0;
+            const auto signed_word = [](std::uint32_t word) {
+                return static_cast<std::int64_t>(word) -
+                    ((word & 0x80000000U) != 0 ? 0x100000000LL : 0LL);
+            };
+            if (divide) {
+                // Stop on unverified exceptional results; never invoke host signed division overflow.
+                if (word_b == 0 || (!unsigned_operation && word_a == 0x80000000U && word_b == 0xffffffffU)) {
+                    return fail(StopKind::unsupported_instruction,
+                        "divide-by-zero or signed division overflow result is outside the supported policy");
+                }
+                const auto quotient = unsigned_operation ? std::uint64_t{word_a / word_b} :
+                    static_cast<std::uint64_t>(signed_word(word_a) / signed_word(word_b));
+                const auto remainder = unsigned_operation ? std::uint64_t{word_a % word_b} :
+                    static_cast<std::uint64_t>(signed_word(word_a) % signed_word(word_b));
+                lo = sign_extend(quotient, 32);
+                hi = sign_extend(remainder, 32);
+            } else {
+                auto product = unsigned_operation ? std::uint64_t{word_a} * word_b :
+                    static_cast<std::uint64_t>(signed_word(word_a) * signed_word(word_b));
+                if (operation == 0 || operation == 1 || operation == 32 || operation == 33) {
+                    product += (std::uint64_t{static_cast<std::uint32_t>(hi)} << 32U) |
+                        static_cast<std::uint32_t>(lo);
+                }
+                lo = sign_extend(product, 32);
+                hi = sign_extend(product >> 32U, 32);
+                write(rd, lo);
+            }
+            return {};
         };
 
         switch (op) {
@@ -170,6 +229,31 @@ InstructionTrace Cpu::step(Memory& memory) {
                     write(rd, sign_extend(pc + 8u, 32));
                 }
                 break;
+            case 10: case 11:
+                if (shift != 0) { return unsupported(); }
+                if ((function == 10 && b == 0) || (function == 11 && b != 0)) write(rd, a);
+                break;
+            case 20: case 22: case 23:
+            case 56: case 58: case 59: case 60: case 62: case 63: {
+                const bool variable = function < 32;
+                if ((!variable && rs != 0) || (variable && shift != 0)) return unsupported();
+                const unsigned amount = variable ? static_cast<unsigned>(a & 63U) :
+                    shift + (function >= 60 ? 32U : 0U);
+                auto result = (function & 3U) == 0 ? b << amount : b >> amount;
+                if ((function & 3U) == 3 && amount != 0 && (b & (std::uint64_t{1} << 63)))
+                    result |= ~std::uint64_t{0} << (64U - amount);
+                write(rd, result);
+                break;
+            }
+            case 44: case 45: case 46: case 47:
+                if (shift != 0) return unsupported();
+                if (!add_doubleword(a, b, rd, (function & 1U) == 0, (function & 2U) != 0))
+                    return fail(StopKind::exception, "signed doubleword arithmetic overflow", 12);
+                break;
+            case 16: case 17: case 18: case 19:
+            case 24: case 25: case 26: case 27:
+                if (const auto failure = hilo(false, function)) return *failure;
+                break;
             case 12: return fail(StopKind::exception, "SYSCALL", 8);
             case 13: return fail(StopKind::exception, "BREAK", 9);
             case 32: case 33: case 34: case 35:
@@ -190,16 +274,39 @@ InstructionTrace Cpu::step(Memory& memory) {
             default: return unsupported();
             }
             break;
+        case 1: {
+            if (rt != 0 && rt != 1 && rt != 2 && rt != 3 &&
+                rt != 16 && rt != 17 && rt != 18 && rt != 19) return unsupported();
+            const bool link = (rt & 16U) != 0;
+            if (link && rs == 31) return unsupported();
+            const bool taken = (rt & 1U) ? !signed_less(a, 0) : signed_less(a, 0);
+            if (link) write(31, sign_extend(pc + 8U, 32));
+            if ((rt & 2U) != 0 && !taken) {
+                next.pc = pc + 8U;
+                next.next_pc = pc + 12U;
+            } else {
+                const auto offset = static_cast<std::uint32_t>(signed_immediate) * 4U;
+                branch(taken ? pc + 4U + offset : pc + 8U);
+            }
+            break;
+        }
         case 2: case 3:
             branch(((pc + 4u) & 0xf0000000u) | ((instruction & 0x03ffffffu) << 2));
             if (op == 3) { write(31, sign_extend(pc + 8u, 32)); }
             break;
-        case 4: case 5: case 6: case 7: {
-            if ((op == 6 || op == 7) && rt != 0) { return unsupported(); }
-            const bool taken = op == 4 ? a == b : op == 5 ? a != b :
-                               op == 6 ? (a == 0 || signed_less(a, 0)) : signed_less(0, a);
+        case 4: case 5: case 6: case 7:
+        case 20: case 21: case 22: case 23: {
+            const auto condition_op = op & 7U;
+            if ((condition_op == 6 || condition_op == 7) && rt != 0) { return unsupported(); }
+            const bool taken = condition_op == 4 ? a == b : condition_op == 5 ? a != b :
+                               condition_op == 6 ? (a == 0 || signed_less(a, 0)) : signed_less(0, a);
             const auto offset = static_cast<std::uint32_t>(signed_immediate) * 4u;
-            branch(taken ? pc + 4u + offset : pc + 8u);
+            if (op >= 20 && !taken) {
+                next.pc = pc + 8U;
+                next.next_pc = pc + 12U;
+            } else {
+                branch(taken ? pc + 4u + offset : pc + 8u);
+            }
             break;
         }
         case 8: case 9:
@@ -244,6 +351,22 @@ InstructionTrace Cpu::step(Memory& memory) {
             else if (rd == 14) { write(rt, sign_extend(state_.cop0.epc, 32)); }
             else if (rd == 30) { write(rt, sign_extend(state_.cop0.error_epc, 32)); }
             else { return unsupported(); }
+            break;
+        case 28:
+            switch (function) {
+            case 0: case 1:
+                if (const auto failure = hilo(false, function)) return *failure;
+                break;
+            case 16: case 17: case 18: case 19:
+            case 24: case 25: case 26: case 27: case 32: case 33:
+                if (const auto failure = hilo(true, function)) return *failure;
+                break;
+            default: return unsupported();
+            }
+            break;
+        case 24: case 25:
+            if (!add_doubleword(a, signed_immediate, rt, op == 24, false))
+                return fail(StopKind::exception, "signed doubleword arithmetic overflow", 12);
             break;
         case 32: case 33: case 35: case 36: case 37: case 39: case 55: {
             const auto address = word_a + static_cast<std::uint32_t>(signed_immediate);

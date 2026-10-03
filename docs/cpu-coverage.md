@@ -7,11 +7,11 @@ boot a BIOS or run games. Passing these tests does not establish PS2 compatibili
 
 ## Execution contract
 
-`CpuState` contains 32 GPRs represented as two 64-bit lanes, HI/LO placeholders,
+`CpuState` contains 32 GPRs represented as two 64-bit lanes, both HI/LO lanes,
 SA, a 32-bit PC, pending next PC, explicit delay-slot context, explicit COP0
 registers, and a sticky stop record. Scalar instructions preserve the upper
-GPR lane; r0 is always zero, including after debugger state import. HI/LO and SA
-are reserved for later instruction families and are not executed yet.
+GPR lane; r0 is always zero, including after debugger state import. HI/LO support the two integer multiply/divide pipelines; SA instructions remain
+unimplemented.
 
 `Cpu::reset(entry)` initializes a synthetic program entry (default zero); it is
 not a hardware reset. It does not clear the separately owned `Memory` object.
@@ -45,10 +45,15 @@ limitation, not a fabricated architectural Reserved Instruction exception.
 | Family | Implemented | Semantics / test focus |
 | --- | --- | --- |
 | Word arithmetic | ADD, ADDU, SUB, SUBU, ADDI, ADDIU | Low 32-bit arithmetic, sign-extended result; signed forms detect overflow even for r0 destinations |
+| Doubleword arithmetic | DADD, DADDU, DSUB, DSUBU, DADDI, DADDIU | Low 64-bit arithmetic; signed overflow dispatches even for r0, upper lane preserved |
+| Doubleword shifts | DSLL, DSRL, DSRA, DSLL32, DSRL32, DSRA32, DSLLV, DSRLV, DSRAV | Full 64-bit results; variable counts masked to six bits |
+| Conditional moves | MOVZ, MOVN | Test low 64 bits; unchanged destination when condition fails |
+| HI/LO | MFHI, MTHI, MFLO, MTLO and pipeline-1 forms | Move full selected 64-bit lane; preserve the other pipeline and upper GPR lane |
+| Word multiply/divide | MULT, MULTU, DIV, DIVU, MADD, MADDU and pipeline-1 forms | Sign-extend each 32-bit HI/LO result; multiply/add also writes rd; see restricted cases below |
 | Logical | AND, OR, XOR, NOR, ANDI, ORI, XORI, LUI | 64-bit scalar logic, zero-extended logical immediates, sign-extended LUI result |
 | Comparison | SLT, SLTU, SLTI, SLTIU | Signed/unsigned 64-bit comparisons; both comparison immediates sign-extended |
 | Word shifts | SLL, SRL, SRA, SLLV, SRLV, SRAV | Word result sign extension; variable count masked to five bits; NOP is SLL r0,r0,0 |
-| Conditional branches | BEQ, BNE, BLEZ, BGTZ | Signed backward offsets; one delay slot on both taken and untaken paths |
+| Conditional branches | BEQ, BNE, BLEZ, BGTZ; BLTZ, BGEZ and L/AL/ALL forms; BEQL, BNEL, BLEZL, BGTZL | Signed low-64-bit comparisons; likely forms annul the untaken slot; link forms write PC+8 on both paths |
 | Jumps | J, JAL, JR, JALR | Region-preserving immediate target; PC+8 link; delayed transfer; unaligned target faults on subsequent fetch |
 | Loads | LB, LBU, LH, LHU, LW, LWU, LD | Signed/unsigned extension, alignment, little-endian assembly, negative offsets |
 | Stores | SB, SH, SW, SD | Width truncation, alignment, atomic rejection of invalid accesses |
@@ -61,8 +66,7 @@ declares unpredictable. Control transfer inside a delay slot and JALR with the
 same source and link register stop explicitly rather than choosing a hardware
 interpretation of unpredictable behavior.
 
-Missing families include doubleword arithmetic/shifts, multiply/divide and
-HI/LO transfers, conditional moves, REGIMM and likely branches, trap comparisons,
+Missing families include trap comparisons,
 unaligned merge loads/stores, quadword transfers, MMI/SIMD, cache/synchronization,
 other COP0 registers/TLB, all FPU/COP1 and VU/COP2 operations. No instruction in these
 families is treated as a successful no-op.
@@ -137,3 +141,36 @@ emulator implementation was imported:
 These documents are references, not redistributed project content or grants of
 license. The generic MIPS manual does not establish support for EE-specific
 instructions; the implemented scope above is authoritative for Critterlink.
+
+## Expanded milestone 4 scalar work
+
+Issue #16 begins with doubleword arithmetic/shifts and conditional moves.
+Boundary tests cover signed overflow without host signed-arithmetic overflow,
+upper-lane preservation, six-bit variable shifts, reserved encodings, destination
+aliasing and restored instruction traces. Sony's *EE Core Instruction Set Manual*
+version 6.0, pages 47–64 and 87–88, is the primary semantic reference
+([manual mirror](https://docs.alexrp.com/mips/ee_insns.pdf)). This extension does
+not complete #16 or the EE instruction set.
+
+REGIMM and likely branches follow the same manual, pages 31–45. Link forms write
+PC+8 regardless of branch outcome; rs=31 for these forms is rejected as
+unpredictable. An untaken likely branch skips the slot entirely, including fetch,
+MMIO and exception effects. Tests cover both paths, signed 64-bit boundaries,
+negative offsets, link preservation, delay exceptions and mid-branch restoration.
+BLTZALL follows the explicit annul pseudocode and likely-branch definition; its
+prose contains a contradictory delay-slot sentence.
+
+Both integer multiply/divide pipelines now use the existing HI/LO state lanes.
+Multiply-add concatenates the low words of the selected HI/LO pair and adds the
+product modulo 64 bits. Results in each HI/LO lane and the multiply rd destination
+are sign-extended words, including unsigned operations. Moves transfer the entire
+selected 64-bit lane. These operations commit immediately; pipeline latency and
+interlock timing remain part of #27.
+
+Manual-undefined noncanonical word operands, division by zero and signed
+INT_MIN/-1 division stop explicitly without changing registers or fabricating a
+CPU exception. Their actual hardware results require separate validation; these
+stops are a remaining compatibility limitation, not a conformance claim. Arithmetic
+is implemented without host signed overflow. Tests cover both pipelines, signed
+and unsigned products/quotients/remainders, accumulator carry/wrap, lane isolation,
+r0 destinations, invalid encodings and restored mixed-pipeline execution.

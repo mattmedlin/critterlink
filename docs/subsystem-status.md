@@ -10,12 +10,13 @@ This matrix describes implemented behavior, not complete console components.
 The linked documents define accepted encodings, register values and fault policies.
 An unsupported operation stops explicitly unless a documented device error applies.
 The combined fixture in issue #15 is verified across the complete platform matrix.
-Milestone #4 is complete within the diagnostic boundaries documented here.
+Milestone #4 is reopened: these diagnostic subsets do not complete general PS2
+hardware emulation. The [expanded plan](hardware-plan.md) tracks remaining work.
 
 | Subsystem | Implemented diagnostic behavior | Assumptions and unimplemented modes | Targeted evidence |
 | --- | --- | --- | --- |
 | Program sources and ELF | Original literal EE/IOP/VU programs; reproducible static ELF32 MIPS fixture; validated segment loading | Fixture builder is not a general assembler/linker; no dynamic linking, firmware loader or arbitrary SDK environment | `elf_loader`, `elf_cli`, `fixture_reproducible`; [homebrew](homebrew.md) |
-| EE scalar CPU | Word arithmetic/shifts, scalar logic/comparisons, selected branches/jumps, byte/half/word/doubleword loads/stores, explicit delay slots | Partial instruction set; no MMI, FPU, multiply/divide, most doubleword arithmetic, quadword memory operations or pipeline/cache timing | `cpu_memory`; [CPU matrix](cpu-coverage.md) |
+| EE scalar CPU | Word/doubleword arithmetic and shifts, scalar logic/comparisons and conditional moves, both HI/LO multiply/divide pipelines, ordinary/likely/REGIMM branches and jumps, byte/half/word/doubleword loads/stores, explicit delay slots | Partial instruction set; no SIMD/MMI, FPU, quadword memory operations; undefined divide results and multiply/divide timing unverified; no pipeline/cache timing | `cpu_memory`, `cpu_scalar`, `cpu_branch`, `cpu_hilo`; [CPU matrix](cpu-coverage.md) |
 | EE COP0 and exceptions | Kernel MFC0/MTC0 subset, INTC/DMAC dispatch, selected synchronous exceptions, EPC/BD, EXL/ERL and ERET | No TLB/privilege implementation, Count/Compare, general COP0 support or hazard timing; BEV ROM vectors have no backing BIOS | `cop0`, `interrupt`; [interrupts](interrupts.md) |
 | EE/IOP memory | Separate 32 MiB/2 MiB RAM; little-endian width/alignment handling; explicit direct-segment aliases | EE low RAM is a synthetic identity window; no caches, scratchpads, memory mirroring, BIOS ROM or arbitrary virtual translation | `cpu_memory`, `iop`, `system`; [CPU](cpu-coverage.md), [IOP](iop.md) |
 | Scheduler and coordinated system | Stable event ordering, bounded execution, logical ticks, ordered recorded input | One EE boundary advances one bus tick; one enabled IOP instruction per tick. This is not either processor's physical clock ratio | `scheduler`, `hardware`, `system`; [schedule](scheduling.md), [plan](hardware-plan.md) |
@@ -35,7 +36,7 @@ Milestone #4 is complete within the diagnostic boundaries documented here.
 | Snapshots and replay | Explicit CPU/RAM/device/input state, partial transfers, decoded audio/envelope state, framebuffer, card bytes and media identities; validated replacement | In-memory API only, no stable save-file format. Disc must already match; existing card mounts must match identity/policy. Card rollback restores completed diagnostic writes | `system`, `interrupt`, `vector_system`, `iop_system`, `spu_system`, `io_system`; linked subsystem contracts |
 | Host presentation and input | Headless framebuffer/PCM data and recorded controller events; CLI diagnostics | No window/GPU renderer, sound-device playback, physical controller discovery, wall-clock synchronization or host backend handles inside snapshots | CLI contracts and deterministic data comparisons; [plan](hardware-plan.md) |
 
-## Milestone 4 integration evidence
+## Completed diagnostic integration evidence
 
 The combined fixture checkpoints active GIF DMA, SPU2 audio and a SIO2 input
 transaction at tick95, with a future controller event still pending. Independent
@@ -47,5 +48,5 @@ observations. These IOP observations are not a separate instruction-trace API.
 All twenty-five suites passed Windows, Linux, macOS ARM64 and macOS x64 in both
 Debug and Release. Local ASan/UBSan validation also passed. See
 [validation.md](validation.md) for the exact revision and CI evidence, and
-[integrated.md](integrated.md) for the fixture contract. Completion denotes this
-documented diagnostic milestone, not full hardware accuracy or game compatibility.
+[integrated.md](integrated.md) for the fixture contract. This completes issue #15 only. It does not complete milestone #4, establish full
+hardware accuracy or demonstrate game compatibility.

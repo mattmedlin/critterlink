@@ -1,42 +1,56 @@
 # Milestone 4: subsystem integration plan
 
-Parent: [#4](https://github.com/mattmedlin/critterlink/issues/4). **The documented
-diagnostic milestone is complete.** A rendered sprite, decoded block, or host controller
+Parent: [#4](https://github.com/mattmedlin/critterlink/issues/4). **Reopened for full hardware
+implementation.** A rendered sprite, decoded block, or host controller
 poll does not establish full PS2 hardware integration. The current
 [subsystem status matrix](subsystem-status.md) records implemented subsets,
 assumptions, missing modes and targeted evidence.
 
-## Delivery plan
+## Remaining hardware implementation
 
-The first delivery is a bounded, testable foundation: schedule devices, expose
-timer/INTC registers, move a normal GIF DMA packet from guest RAM, render its
-sprite, and restore during the transfer. Separately expose strict pad/audio
-primitives so later device work has independently tested building blocks.
-Validate on every existing OS/configuration and preserve all earlier fixtures.
+The goal is a general-purpose PS2 emulator. Existing #8–#15 diagnostics remain
+valid, but only cover subsets. Milestone #4 stays open until the expanded hardware
+work and full-system acceptance criteria are met. LOTR is not an implementation
+boundary, and multiplayer/network design is deferred until local emulation works.
 
-Follow the tracked issues in dependency order; each must meet its own criteria
-before the umbrella's broader criteria are checked off:
+| Issue | Remaining work |
+| --- | --- |
+| [#16](https://github.com/mattmedlin/critterlink/issues/16) | EE integer execution and memory operations |
+| [#17](https://github.com/mattmedlin/critterlink/issues/17) | EE MMI, FPU and architectural control |
+| [#18](https://github.com/mattmedlin/critterlink/issues/18) | Memory map, reset and BIOS boot |
+| [#19](https://github.com/mattmedlin/critterlink/issues/19) | IOP CPU, interrupts, timers and DMA completion |
+| [#20](https://github.com/mattmedlin/critterlink/issues/20) | EE DMA, SIF, VIF and GIF completion |
+| [#21](https://github.com/mattmedlin/critterlink/issues/21) | VU0 and VU1 execution completion |
+| [#22](https://github.com/mattmedlin/critterlink/issues/22) | GS memory, rasterization and scanout |
+| [#23](https://github.com/mattmedlin/critterlink/issues/23) | SPU2 full device and audio timing |
+| [#24](https://github.com/mattmedlin/critterlink/issues/24) | CDVD image-backed firmware-facing device |
+| [#25](https://github.com/mattmedlin/critterlink/issues/25) | SIO2 controllers and persistent memory cards |
+| [#26](https://github.com/mattmedlin/critterlink/issues/26) | IPU and remaining PS2 hardware inventory |
+| [#27](https://github.com/mattmedlin/critterlink/issues/27) | Hardware timing and full-system conformance |
 
-| Issue | Deliverable | Dependencies | Current implementation |
-| --- | --- | --- | --- |
-| [#8](https://github.com/mattmedlin/critterlink/issues/8) | Scheduler, EE timers and INTC | #3 | Implemented diagnostic subset; explicit policies below |
-| [#9](https://github.com/mattmedlin/critterlink/issues/9) | GIF normal DMA and reference sprite renderer | #8 | Implemented diagnostic subset |
-| [#10](https://github.com/mattmedlin/critterlink/issues/10) | COP0 interrupt/exception dispatch and ERET | #8 | Implemented kernel diagnostic dispatch and ERET; see [interrupts.md](interrupts.md) |
-| [#11](https://github.com/mattmedlin/critterlink/issues/11) | VIF and vector units | DMA channels/FIFOs beyond #9 | VIF1 normal DMA and diagnostic VU1 subset; see [vector.md](vector.md) |
-| [#12](https://github.com/mattmedlin/critterlink/issues/12) | IOP and SIF communication | #8, #10, DMA extensions | Independent IOP scalar CPU and normal SIF DMA/mailbox subset; see [sif.md](sif.md) |
-| [#13](https://github.com/mattmedlin/critterlink/issues/13) | Register-driven SPU2 audio | #12 | Two core-0 voices, manual sound RAM upload, ADPCM/ADSR and integer-pitch PCM; see [spu.md](spu.md) |
-| [#14](https://github.com/mattmedlin/critterlink/issues/14) | SIO2 controllers, memory cards and disc | #12 | Guest digital/analog polling, synthetic raw card transactions, ReadCD/DMA3; see [sio2.md](sio2.md), [cdvd.md](cdvd.md) |
-| [#15](https://github.com/mattmedlin/critterlink/issues/15) | Guest-driven audiovisual/input restoration | #10–#14 | Verified combined fixture and active-device restoration; see [integrated.md](integrated.md) |
+Start with EE/IOP execution and memory/reset foundations, then expand transfer,
+vector, graphics, audio and I/O paths alongside integrated tests. Timing and
+snapshot work accompany every subsystem rather than being postponed to the end.
+IPU and optional-device inventory must expose omissions explicitly. Desktop UI,
+host window/audio/controller backends and packaging belong to #6; hardware-facing
+scanout, samples and controller protocols belong here.
 
-Issues #10/#11 add guest interrupt dispatch and a VIF1/VU1 diagnostic path.
-Issue #12 adds a directly initialized IOP/SIF diagnostic path. Issue #13 connects
-guest IOP halfword accesses to an SPU2 audio diagnostic. Issue #14 adds IOP-side
-controller configuration, card transactions and read-only disc DMA using original
-synthetic media. The combined audiovisual/input restoration fixture (#15) is
-verified with simultaneously active DMA, audio and input at a snapshot,
-independently expected outputs after replay, and successful execution across the
-complete platform matrix. [Validation evidence](validation.md) records the exact
-revision and results.
+Completion requires a complete implementation inventory, user-supplied firmware
+boot through real implemented paths, varied redistributable homebrew, independent
+hardware expectations, restoration during activity, and the full platform matrix.
+No single demo, instruction family or game establishes completion. Commercial-game
+compatibility remains a separate broad test program in #5 and may reveal more
+hardware defects. Primary reference review and small regression fixtures precede
+each hardware extension; unsupported operations must not silently succeed.
+
+## Completed diagnostic foundation
+
+Issues #8–#15 provide deterministic scheduling, timer/interrupt dispatch, normal
+DMA, a sprite renderer, VIF1/VU1 integer diagnostics, IOP/SIF communication, limited
+SPU2 audio, synthetic card/disc access and combined audiovisual/input restoration.
+Their exact scope remains in the [subsystem matrix](subsystem-status.md), linked
+contracts and [validation history](validation.md). This is progress toward the
+expanded milestone, not full hardware implementation.
 
 ## Host-neutral system and timing contract
 
