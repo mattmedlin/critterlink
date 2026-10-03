@@ -192,7 +192,7 @@ void failures() {
     transfer(sio, write_packet());
     transfer(sio, select_page(0x22, 1));
     auto illegal_program = write_packet();
-    std::fill(illegal_program.begin() + 3, illegal_program.begin() + 19, 0xff);
+    std::fill(illegal_program.begin() + 3, illegal_program.begin() + 19, std::uint8_t{0xff});
     const auto programmed = sio.export_card(0);
     start(sio, illegal_program);
     sio.tick();
