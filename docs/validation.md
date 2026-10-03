@@ -268,3 +268,24 @@ macOS x86-64 built with strict warnings and passed all twenty-five suites.
 This completes issue #15. The original diagnostic criteria were insufficient
 for the intended full emulator: milestone #4 was reopened on October 3, 2026
 with expanded hardware scope. This run does not establish hardware completion.
+
+## Expanded hardware milestone: first EE execution delivery (#16)
+
+On October 3, 2026, the full 28-suite native Apple Silicon Debug, Release and
+ASan/UBSan runs passed. New suites cover scalar doubleword arithmetic/shifts,
+conditional moves, REGIMM/likely branches and both integer HI/LO pipelines,
+including independent edge results and restored execution. Existing integrated
+hardware, ELF, I/O and CLI regressions remain green.
+
+[GitHub Actions run 37138552689](https://github.com/mattmedlin/critterlink/actions/runs/37138552689)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`576616b`. The first run exposed signed/unsigned optional comparisons in two test
+assertions on MSVC. Explicit unsigned expectations fixed those without weakening
+compiler flags; the two affected sanitizer suites passed again.
+
+This is partial delivery under #16 and reopened #4. Trap instructions, unaligned
+merges, quadword transfers, other instruction families and broader hardware remain
+tracked work. Multiply/divide timing and manual-undefined result cases remain
+unverified, with explicit stops for the latter. See [CPU coverage](cpu-coverage.md)
+and the [expanded hardware plan](hardware-plan.md); no firmware/game compatibility
+is established by these tests.
