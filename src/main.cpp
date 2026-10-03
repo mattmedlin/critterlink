@@ -5,6 +5,7 @@
 #include "critterlink/hardware_demo.hpp"
 #include "critterlink/interrupt_demo.hpp"
 #include "critterlink/vector_demo.hpp"
+#include "critterlink/iop_demo.hpp"
 
 #include <charconv>
 #include <iostream>
@@ -157,9 +158,22 @@ int main(int argc, char** argv) {
                                               "       critterlink --hardware-demo\n"
                                               "       critterlink --interrupt-demo\n"
                                               "       critterlink --vector-demo\n"
+                                              "       critterlink --iop-demo\n"
                                               "       critterlink --elf FILE [--steps N] [--trace] [--inspect ADDRESS]...\n"
                                               "       critterlink --help\n";
     critterlink::Tick ticks = 0;
+    if (argc == 2 && std::string_view(argv[1]) == "--iop-demo") {
+        try {
+            const auto result = critterlink::run_iop_demo();
+            std::cout << "IOP/SIF diagnostic: ticks=" << result.ticks << " response=" << result.response
+                      << " exchange-completed=" << result.exchange_completed
+                      << " replay=" << (result.replay_identical ? "identical" : "MISMATCH") << '\n';
+            return result.response == 40 && result.exchange_completed && result.replay_identical ? 0 : 1;
+        } catch (const std::exception& error) {
+            std::cerr << "IOP/SIF diagnostic failed: " << error.what() << '\n';
+            return 1;
+        }
+    }
     if (argc == 2 && std::string_view(argv[1]) == "--vector-demo") {
         try {
             const auto result = critterlink::run_vector_demo();

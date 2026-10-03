@@ -37,6 +37,8 @@ public:
     std::span<const std::uint8_t> bytes() const noexcept;
     void advance(std::uint64_t ticks) { hardware_.advance(ticks, ram_); }
     const Hardware& hardware() const noexcept { return hardware_; }
+    Iop& iop() noexcept { return hardware_.iop(); }
+    const Iop& iop() const noexcept { return hardware_.iop(); }
     MemoryState state() const;
     void restore(const MemoryState& state);
 

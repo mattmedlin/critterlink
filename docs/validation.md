@@ -143,3 +143,24 @@ Remote verification passed for `811d0f9` in
 [GitHub Actions run 37083503427](https://github.com/mattmedlin/critterlink/actions/runs/37083503427):
 all eight Debug/Release jobs on Windows x86-64, Linux x86-64, macOS ARM64 and
 macOS x86-64 built with strict warnings and passed all sixteen suites.
+
+## IOP/SIF diagnostic (#12) local validation
+
+On October 2, 2026 (America/New_York), native Apple Silicon Debug, Release and
+address/undefined-behavior sanitizer builds passed all nineteen suites. The
+affected IOP/SIF/integration suites also passed again in all three configurations
+after adding PC/opcode context to IOP failure diagnostics. Earlier ELF, CPU,
+interrupt, graphics and vector fixtures remain passing.
+
+Independent tests cover the separate IOP register/RAM model, branch and load
+delays, explicit unsupported hazards/accesses, bidirectional DMA, FIFO pressure,
+mailboxes, masks, cancellation, bounds and transactional invalid snapshots.
+Original guest code on both processors configures the exchange and produces
+response 40 from request words 7,9,11,13. The EE also reads that result from SMCOM.
+At tick31 the snapshot contains five queued qwords and a pending IOP load;
+whole-run and single-step replay reach identical complete state/EE trace at
+tick223. `--iop-demo` reports completed exchange and identical replay.
+
+The [IOP](iop.md) and [SIF](sif.md) profiles document strict subsets and timing
+policies. These tests do not establish BIOS boot, SIFRPC, IOP interrupt dispatch,
+SPU2/SIO2 functionality, or silicon-conformant timing/IRQ behavior.

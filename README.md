@@ -76,6 +76,14 @@ a VU register. Expected: `output=7,9,11,13 dma-completed=1 replay=identical`.
 This checks the [documented transfer/integer subset](docs/vector.md), including
 upload and execution stalls; it does not implement floating-point vector math.
 
+The IOP/SIF diagnostic is available with `./build/critterlink --iop-demo`.
+The EE sends a 128-byte block; an independent IOP program adds its first four
+words and sends the result back through SIF DMA, also publishing it in a shared
+mailbox. Expected: `ticks=223 response=40 exchange-completed=1 replay=identical`.
+See the [IOP CPU subset](docs/iop.md) and [SIF transport](docs/sif.md). The IOP is
+started explicitly for this fixture; this does not boot firmware or implement
+SIFRPC, IOP interrupt dispatch, SPU2 or SIO2.
+
 ## Architecture
 
 - `critterlink_core`: platform-independent static library using only C++ standard
@@ -129,7 +137,7 @@ a successful remote run.
 
 A bounded scalar CPU subset, bootstrap RAM bus, static ELF loader, timer/INTC
 register subset, normal GIF DMA and diagnostic sprite renderer are implemented.
-BIOS boot, full CPU/COP0 execution, TLB, full VIF/VU, IOP/SIF, full GS/SPU2, storage,
+BIOS boot, full CPU/COP0 execution, TLB, full VIF/VU and IOP/SIF, full GS/SPU2, storage,
 SIO2 device integration, desktop UI, game compatibility, and networking remain
 unimplemented. Later
 milestones will add them incrementally. No game compatibility or performance

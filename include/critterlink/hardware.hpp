@@ -3,6 +3,8 @@
 #include "critterlink/graphics.hpp"
 #include "critterlink/scheduler.hpp"
 #include "critterlink/vector.hpp"
+#include "critterlink/iop.hpp"
+#include "critterlink/sif.hpp"
 
 #include <array>
 #include <cstdint>
@@ -36,6 +38,8 @@ struct HardwareState {
     std::optional<std::string> stop;
     VifDmaState vif_dma;
     VectorState vector;
+    IopState iop;
+    SifState sif;
     bool operator==(const HardwareState&) const = default;
 };
 
@@ -45,7 +49,7 @@ public:
     Hardware();
     std::uint32_t read(std::uint32_t physical_address) const;
     void write(std::uint32_t physical_address, std::uint32_t value);
-    void advance(std::uint64_t ticks, std::span<const std::uint8_t> ram);
+    void advance(std::uint64_t ticks, std::span<std::uint8_t> ram);
     HardwareState state() const;
     void restore(const HardwareState& state);
     bool int0() const noexcept;
@@ -53,6 +57,9 @@ public:
     std::uint64_t now() const noexcept { return scheduler_.state().now; }
     const std::optional<std::string>& stop() const noexcept { return stop_; }
     const VectorState& vector() const noexcept { return vector_.state(); }
+    Iop& iop() noexcept { return iop_; }
+    const Iop& iop() const noexcept { return iop_; }
+    const SifState& sif() const noexcept { return sif_.state(); }
     const GraphicsState& graphics() const noexcept { return graphics_.state(); }
 
 private:
@@ -66,6 +73,8 @@ private:
     Graphics graphics_;
     VifDmaState vif_dma_;
     VectorUnit vector_;
+    Iop iop_;
+    Sif sif_;
     std::optional<std::string> stop_;
 };
 

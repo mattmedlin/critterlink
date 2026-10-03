@@ -11,16 +11,25 @@ constexpr std::uint32_t intc_stat = 0x1000f000, intc_mask = 0x1000f010;
 constexpr std::uint32_t d1_chcr = 0x10009000, d1_madr = 0x10009010, d1_qwc = 0x10009020;
 constexpr std::uint32_t d2_chcr = 0x1000a000, d2_madr = 0x1000a010, d2_qwc = 0x1000a020;
 constexpr std::uint32_t d_ctrl = 0x1000e000, d_stat = 0x1000e010;
-constexpr std::uint32_t dma_supported_status = 0x00068006; // channels 1/2 flags/masks and bus error
+constexpr std::uint32_t dma_supported_status = 0x00668066; // channels 1/2/5/6 flags/masks and bus error
 unsigned divisor(std::uint16_t mode) { return (mode & 3u) == 0 ? 1u : (mode & 3u) == 1 ? 16u : 256u; }
 void require(bool ok, const char* reason) { if (!ok) { throw std::invalid_argument(reason); } }
+class PeripheralBus final : public IopBus {
+public:
+    explicit PeripheralBus(Sif& sif) : sif_(sif) {}
+    std::uint32_t read32(std::uint32_t address) override { return sif_.iop_read32(address); }
+    void write32(std::uint32_t address, std::uint32_t value) override { sif_.iop_write32(address, value); }
+private:
+    Sif& sif_;
+};
 }
 
 Hardware::Hardware() { scheduler_.schedule(1, EventType::timer); }
 bool Hardware::int0() const noexcept { return (interrupt_status_ & interrupt_mask_) != 0; }
-bool Hardware::int1() const noexcept { return (dma_.status & (dma_.status >> 16) & 6u) != 0 || (dma_.status & 0x8000u) != 0; }
+bool Hardware::int1() const noexcept { return (dma_.status & (dma_.status >> 16) & 0x66u) != 0 || (dma_.status & 0x8000u) != 0; }
 
 std::uint32_t Hardware::read(std::uint32_t address) const {
+    if (Sif::ee_address(address)) { return sif_.ee_read32(address); }
     if (address >= timer_base && address < timer_base + 0x2000) {
         const auto index = (address - timer_base) / 0x800;
         switch ((address - timer_base) % 0x800) {
@@ -46,6 +55,7 @@ std::uint32_t Hardware::read(std::uint32_t address) const {
 }
 
 void Hardware::write(std::uint32_t address, std::uint32_t value) {
+    if (Sif::ee_address(address)) { sif_.ee_write32(address, value); return; }
     if (address >= timer_base && address < timer_base + 0x2000) {
         auto& timer = timers_[(address - timer_base) / 0x800];
         switch ((address - timer_base) % 0x800) {
@@ -211,7 +221,7 @@ void Hardware::tick_dma(std::span<const std::uint8_t> ram) {
     }
 }
 
-void Hardware::advance(std::uint64_t ticks, std::span<const std::uint8_t> ram) {
+void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram) {
     if (stop_) { return; }
     const auto now = scheduler_.state().now;
     if (ticks > std::numeric_limits<std::uint64_t>::max() - now) {
@@ -220,7 +230,15 @@ void Hardware::advance(std::uint64_t ticks, std::span<const std::uint8_t> ram) {
     const auto target = now + ticks;
     while (auto event = scheduler_.pop_next_until(target)) {
         tick_timers();
-        try { vector_.tick(); }
+        PeripheralBus bus(sif_);
+        iop_.step(&bus);
+        if (iop_.state().stop) { stop_ = "IOP: " + *iop_.state().stop; }
+        if (!stop_) {
+            sif_.tick(ram, iop_.mutable_ram(), (dma_.control & 1u) != 0);
+            dma_.status |= sif_.take_ee_completions();
+            if (sif_.state().stop) { stop_ = "SIF: " + *sif_.state().stop; }
+        }
+        try { if (!stop_) { vector_.tick(); } }
         catch (const std::invalid_argument& error) { stop_ = std::string("VU1: ") + error.what(); }
         if (!stop_) { tick_vif_dma(ram); }
         if (!stop_) { tick_dma(ram); }
@@ -232,7 +250,7 @@ void Hardware::advance(std::uint64_t ticks, std::span<const std::uint8_t> ram) {
 }
 
 HardwareState Hardware::state() const {
-    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state()};
+    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state()};
 }
 
 void Hardware::restore(const HardwareState& state) {
@@ -263,6 +281,8 @@ void Hardware::restore(const HardwareState& state) {
             channel.cursor < 4 && (!channel.loaded || ((channel.chcr & 0x100u) != 0 && channel.qwords != 0)) &&
             (channel.loaded || (channel.cursor == 0 && channel.pending == std::array<std::uint32_t, 4>{})),
             "invalid VIF1 DMA snapshot");
+    replacement.iop_.restore(state.iop);
+    replacement.sif_.restore(state.sif);
     replacement.vector_.restore(state.vector);
     replacement.vif_dma_ = state.vif_dma;
     replacement.graphics_.restore(state.graphics);

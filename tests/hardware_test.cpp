@@ -96,7 +96,7 @@ void start(Hardware& h, std::uint32_t count) {
     h.write(madr, 0); h.write(qwc, count); h.write(chcr, 0x101);
 }
 void test_dma() {
-    const auto ram = sprite();
+    auto ram = sprite();
     Hardware h;
     start(h, 6);
     h.advance(3, ram);

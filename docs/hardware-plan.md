@@ -21,13 +21,14 @@ before the umbrella's broader criteria are checked off:
 | [#9](https://github.com/mattmedlin/critterlink/issues/9) | GIF normal DMA and reference sprite renderer | #8 | Implemented diagnostic subset |
 | [#10](https://github.com/mattmedlin/critterlink/issues/10) | COP0 interrupt/exception dispatch and ERET | #8 | Implemented kernel diagnostic dispatch and ERET; see [interrupts.md](interrupts.md) |
 | [#11](https://github.com/mattmedlin/critterlink/issues/11) | VIF and vector units | DMA channels/FIFOs beyond #9 | VIF1 normal DMA and diagnostic VU1 subset; see [vector.md](vector.md) |
-| [#12](https://github.com/mattmedlin/critterlink/issues/12) | IOP and SIF communication | #8, #10, DMA extensions | Not implemented |
+| [#12](https://github.com/mattmedlin/critterlink/issues/12) | IOP and SIF communication | #8, #10, DMA extensions | Independent IOP scalar CPU and normal SIF DMA/mailbox subset; see [sif.md](sif.md) |
 | [#13](https://github.com/mattmedlin/critterlink/issues/13) | Register-driven SPU2 audio | #12 | Filter-zero ADPCM primitive only; no voice engine or playback |
 | [#14](https://github.com/mattmedlin/critterlink/issues/14) | SIO2 controllers, memory cards and disc | #12 | Host digital-pad poll primitive only; storage/disc absent |
 | [#15](https://github.com/mattmedlin/critterlink/issues/15) | Guest-driven audiovisual/input restoration | #10–#14 | CPU/DMA/timer/graphics replay works; full integration remains open |
 
 Issues #10/#11 add guest interrupt dispatch and a VIF1/VU1 diagnostic path.
-Next is IOP/SIF (#12), with additional DMA and vector coverage tracked as needed. SPU2 and SIO2 should consume real IOP-side transactions before
+Issue #12 adds a directly initialized IOP/SIF diagnostic path. Next is the
+register-driven SPU2 audio subset (#13). SPU2 and SIO2 should consume real IOP-side transactions before
 their host primitives can count as integrated console devices. Memory-card and
 disc diagnostics should use original synthetic media, never proprietary dumps.
 
@@ -37,7 +38,8 @@ disc diagnostics should use original synthetic media, never proprietary dumps.
 input, and an input cursor. A successful CPU instruction or guest exception entry advances one logical
 bus tick. This ratio is a **diagnostic scheduling policy**, not the real EE
 clock ratio or instruction timing. Host stops advance no device time. On each
-tick timers run first, then one VU1 pair, up to one VIF1 DMA qword, and one GIF
+tick timers run first, then one enabled IOP instruction, SIF endpoint transfers, one VU1 pair,
+up to one VIF1 DMA qword, and one GIF
 DMA qword. A stalled VIF word holds its channel without blocking timers or VU. Recorded pad input applies before the
 CPU instruction at its timestamp; same-tick samples retain supplied order.
 Analog input is rejected until supported. Direct pad polls use the serial
@@ -51,7 +53,7 @@ Unsupported graphics input or DMA source access stops device progression with
 a diagnostic. A DMA-failing tick retains earlier timer work and earlier valid
 qwords; it does not pretend the entire transfer was atomic.
 
-`System::state/restore` covers CPU, complete RAM, scheduler queue/time, timer
+`System::state/restore` covers both CPUs, both complete RAMs, SIF registers/FIFOs, scheduler queue/time, timer
 prescalers/flags, DMA progress, partial VIF DMA qword, VIF upload, VU registers/memories/execution,
 partial GIF payload and pending sprite vertex,
 framebuffer, controller transaction state, input samples and cursor. Restore
@@ -83,7 +85,8 @@ error. Instructions cannot be fetched from MMIO.
 | INTC_STAT `0x1000f000` | Latched sources, write-one-clear; timers use bits 9–12 |
 | INTC_MASK `0x1000f010` | Write-one-toggle; INT0 reflects enabled pending sources |
 | D_CTRL `0x1000e000` | DMAE bit0; disabling pauses GIF DMA |
-| D_STAT `0x1000e010` | Channels1/2 completion bits1/2 and masks17/18, bus-error bit15; low flags write-one-clear, high mask write-one-toggle |
+| D_STAT `0x1000e010` | Channels1/2/5/6 completion bits1/2/5/6 and masks17/18/21/22, bus-error bit15; low flags write-one-clear, high mask write-one-toggle |
+| SIF0/1 channels at `0x1000c000` / `0x1000c400` | Normal EE receive/send endpoints; see [sif.md](sif.md) |
 | D1_CHCR `0x10009000`, MADR +0x10, QWC +0x20 | Normal RAM-to-VIF1 DMA with word-level stall/partial-qword state |
 | D2_CHCR `0x1000a000` | Normal memory-to-GIF direction/start only; active restart or reprogramming rejected |
 | D2_MADR `0x1000a010`, D2_QWC `0x1000a020` | Qword-aligned physical RAM source and 16-bit count; advance one qword per logical tick |
@@ -92,7 +95,7 @@ DMA completion clears STR and latches the relevant channel status. An out-of-RAM
 clears STR, sets channel/bus-error status and stops the diagnostic. A rejected
 GIF qword leaves MADR/QWC at the offending qword and stops. Empty transfers
 complete on the next enabled tick. A DMA boundary does not discard a partial
-GIF packet. INT1 reflects enabled channel1/channel2 completion or a bus error.
+GIF packet. INT1 reflects enabled channel1/2/5/6 completion or a bus error.
 VIF1 DMA latches the source qword before consuming words. On a stall the current
 word, address and count remain pending. D_CTRL pauses delivery; VU execution
 continues. Stopping CHCR discards that channel's pending qword while retaining

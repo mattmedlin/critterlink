@@ -38,6 +38,12 @@ authored from scratch with Codex/subagent assistance. Original Sony manuals
 and primary homebrew tool definitions cited in `docs/vector.md` inform the
 documented subset. No vector microprogram from a game or emulator was copied.
 
+The independent IOP interpreter, SIF transport and two-processor diagnostic
+were authored from scratch with Codex/subagent assistance. Manufacturer manuals
+and primary PS2SDK register/driver references are linked in `docs/iop.md` and
+`docs/sif.md`. They were used to establish the limited register and instruction
+contracts; no driver implementation, firmware or emulator core was imported.
+
 There are no vendored or downloaded C++ dependencies. The core, CLI, and tests
 use the C++ standard library provided by the selected compiler. Its distribution
 and runtime terms depend on the toolchain (MSVC, Apple Clang/libc++, or GCC/libstdc++).
