@@ -315,3 +315,26 @@ The transfers currently support RAM; merge/quadword MMIO and FIFO accesses remai
 explicitly unsupported. Full EE instruction auditing, memory/cache integration
 and multiply/divide edge-result/timing validation remain tracked work. This
 completes the requested instruction batch, not issue #16 or milestone #4.
+
+## Shared CPU/DMA GIF FIFO (#16 / #20)
+
+On October 3, 2026, all 32 suites passed native Apple Silicon Debug, Release
+and ASan/UBSan. The new FIFO suite covers capacity, address aliases, rejected
+widths, CPU/DMA ordering, stalled retirement, delay slots, interrupt entry and
+ERET during a stalled store, guest sprite rendering, reset and snapshot replay.
+The integrated diagnostic retains ticks=194, sprite-pixels=12, samples=194,
+pcm-signature=15153771150353129381 and replay=identical.
+
+[GitHub Actions run 37144252848](https://github.com/mattmedlin/critterlink/actions/runs/37144252848)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`0c26479`. Earlier Windows runs exposed a test constant colliding with `stat`
+and excessive Debug stack usage from putting all snapshot cases in one function.
+Renaming the constant and separating the cases into individual functions fixed
+both; the affected suite also passed again locally in Debug and ASan/UBSan.
+No checks or compiler flags were weakened.
+
+See [GIF FIFO](gif-fifo.md) for the implemented interface and explicit logical
+scheduling policy, and [EE integer audit](ee-integer-audit.md) for remaining
+instruction and memory-system gaps. Full graphics-path arbitration, other FIFOs,
+physical bus timing and general game compatibility are not established. Issues
+#16, #20 and milestone #4 remain open.
