@@ -174,3 +174,7 @@ stops are a remaining compatibility limitation, not a conformance claim. Arithme
 is implemented without host signed overflow. Tests cover both pipelines, signed
 and unsigned products/quotients/remainders, accumulator carry/wrap, lane isolation,
 r0 destinations, invalid encodings and restored mixed-pipeline execution.
+
+HI/LO and multiply/divide references are the same manual, pages 51–53, 85–92,
+138–150 and 152–157. MADD1 follows the operation's high HI/LO lanes; the prose's
+reference to the low pipeline conflicts with that operation and instruction name.

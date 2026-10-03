@@ -61,7 +61,7 @@ int main() {
                 setup(opcode,c.a,c.b);
                 const auto before=cpu.state().gpr;
                 const auto trace=cpu.step(memory);
-                check(!trace.retired && trace.exception==12 && !trace.stop,"overflow not dispatched");
+                check(!trace.retired && trace.exception==12U && !trace.stop,"overflow not dispatched");
                 check(cpu.state().gpr==before && cpu.state().pc==0x80000180 && cpu.state().cop0.epc==0,
                     "overflow committed destination or wrong vector");
             }
@@ -75,7 +75,7 @@ int main() {
         // Overflow in a branch delay slot preserves the branch EPC and BD.
         setup(0x10000001,max,1); memory.write(4,4,r(44));
         check(cpu.step(memory).retired,"branch setup");
-        check(cpu.step(memory).exception==12 && cpu.state().cop0.epc==0 &&
+        check(cpu.step(memory).exception==12U && cpu.state().cop0.epc==0 &&
             (cpu.state().cop0.cause&0x80000000U),"doubleword delay-slot overflow context");
         // Aliased destination reads old operands; repeated execution preserves upper lanes.
         setup(r(45,1,2,1),5,7);

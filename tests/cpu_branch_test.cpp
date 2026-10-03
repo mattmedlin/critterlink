@@ -54,7 +54,7 @@ int main() {
         setup(branch(1,17),0); memory.write(4,4,branch(20,2));
         check(cpu.step(memory).retired && cpu.step(memory).stop.has_value(),"nested likely branch accepted");
         setup(branch(1,19),0); memory.write(4,4,0x0000000c);
-        check(cpu.step(memory).retired && cpu.step(memory).exception==8 && cpu.state().cop0.epc==0 &&
+        check(cpu.step(memory).retired && cpu.step(memory).exception==8U && cpu.state().cop0.epc==0 &&
             (cpu.state().cop0.cause&0x80000000U) && cpu.state().gpr[31].low==8,"linked delay exception context");
         setup(branch(1,1,1,0xffff),0);
         check(cpu.step(memory).retired && cpu.state().next_pc==0,"negative offset target");
