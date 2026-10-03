@@ -9,8 +9,8 @@ facts. No external emulator core, firmware or commercial media is imported.
 This matrix describes implemented behavior, not complete console components.
 The linked documents define accepted encodings, register values and fault policies.
 An unsupported operation stops explicitly unless a documented device error applies.
-The combined fixture in issue #15 is **implementation pending verification**;
-umbrella #4 remains open until its integration and platform evidence is complete.
+The combined fixture in issue #15 is verified across the complete platform matrix.
+Milestone #4 is complete within the diagnostic boundaries documented here.
 
 | Subsystem | Implemented diagnostic behavior | Assumptions and unimplemented modes | Targeted evidence |
 | --- | --- | --- | --- |
@@ -35,18 +35,17 @@ umbrella #4 remains open until its integration and platform evidence is complete
 | Snapshots and replay | Explicit CPU/RAM/device/input state, partial transfers, decoded audio/envelope state, framebuffer, card bytes and media identities; validated replacement | In-memory API only, no stable save-file format. Disc must already match; existing card mounts must match identity/policy. Card rollback restores completed diagnostic writes | `system`, `interrupt`, `vector_system`, `iop_system`, `spu_system`, `io_system`; linked subsystem contracts |
 | Host presentation and input | Headless framebuffer/PCM data and recorded controller events; CLI diagnostics | No window/GPU renderer, sound-device playback, physical controller discovery, wall-clock synchronization or host backend handles inside snapshots | CLI contracts and deterministic data comparisons; [plan](hardware-plan.md) |
 
-## Integration evidence required for milestone 4
+## Milestone 4 integration evidence
 
-Individual fixtures already exercise device paths through guest instructions and
-validate independently calculated outputs. Their success does not by itself prove
-the combined restoration requirement. Issue #15 must demonstrate a checkpoint
-with DMA, generated audio and an input transaction active together; continuation
-must reproduce CPU/device state and the subsequent framebuffer, PCM and controller
-results. Any execution trace described as EE-only must remain labeled that way;
-IOP final-state equality is not a separately recorded IOP instruction trace.
+The combined fixture checkpoints active GIF DMA, SPU2 audio and a SIO2 input
+transaction at tick95, with a future controller event still pending. Independent
+expectations cover every framebuffer pixel, a literal PCM sequence and controller
+replies consumed by guest code. Restoration reproduces full CPU/device state and
+subsequent outputs, EE instruction traces and per-step IOP PC/register/load-delay
+observations. These IOP observations are not a separate instruction-trace API.
 
-The same original integrated fixture and fixed expectations must pass the existing
-Windows, Linux, macOS ARM64 and macOS x64 Debug/Release matrix. Validation evidence
-belongs in [validation.md](validation.md). Close the umbrella only after that
-combined evidence is recorded; closure denotes completion of this documented
-milestone, never full hardware accuracy or game compatibility.
+All twenty-five suites passed Windows, Linux, macOS ARM64 and macOS x64 in both
+Debug and Release. Local ASan/UBSan validation also passed. See
+[validation.md](validation.md) for the exact revision and CI evidence, and
+[integrated.md](integrated.md) for the fixture contract. Completion denotes this
+documented diagnostic milestone, not full hardware accuracy or game compatibility.

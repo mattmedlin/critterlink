@@ -1,7 +1,7 @@
 # Milestone 4: subsystem integration plan
 
-Parent: [#4](https://github.com/mattmedlin/critterlink/issues/4). **The umbrella
-milestone remains open.** A rendered sprite, decoded block, or host controller
+Parent: [#4](https://github.com/mattmedlin/critterlink/issues/4). **The documented
+diagnostic milestone is complete.** A rendered sprite, decoded block, or host controller
 poll does not establish full PS2 hardware integration. The current
 [subsystem status matrix](subsystem-status.md) records implemented subsets,
 assumptions, missing modes and targeted evidence.
@@ -26,17 +26,17 @@ before the umbrella's broader criteria are checked off:
 | [#12](https://github.com/mattmedlin/critterlink/issues/12) | IOP and SIF communication | #8, #10, DMA extensions | Independent IOP scalar CPU and normal SIF DMA/mailbox subset; see [sif.md](sif.md) |
 | [#13](https://github.com/mattmedlin/critterlink/issues/13) | Register-driven SPU2 audio | #12 | Two core-0 voices, manual sound RAM upload, ADPCM/ADSR and integer-pitch PCM; see [spu.md](spu.md) |
 | [#14](https://github.com/mattmedlin/critterlink/issues/14) | SIO2 controllers, memory cards and disc | #12 | Guest digital/analog polling, synthetic raw card transactions, ReadCD/DMA3; see [sio2.md](sio2.md), [cdvd.md](cdvd.md) |
-| [#15](https://github.com/mattmedlin/critterlink/issues/15) | Guest-driven audiovisual/input restoration | #10–#14 | Combined guest audiovisual/input fixture: implementation pending verification |
+| [#15](https://github.com/mattmedlin/critterlink/issues/15) | Guest-driven audiovisual/input restoration | #10–#14 | Verified combined fixture and active-device restoration; see [integrated.md](integrated.md) |
 
 Issues #10/#11 add guest interrupt dispatch and a VIF1/VU1 diagnostic path.
 Issue #12 adds a directly initialized IOP/SIF diagnostic path. Issue #13 connects
 guest IOP halfword accesses to an SPU2 audio diagnostic. Issue #14 adds IOP-side
 controller configuration, card transactions and read-only disc DMA using original
 synthetic media. The combined audiovisual/input restoration fixture (#15) is
-implementation pending verification. Its acceptance requires simultaneously active
-DMA, audio and input at a snapshot, independently expected outputs after replay,
-and successful execution across the complete platform matrix. The umbrella stays
-open until that evidence is recorded.
+verified with simultaneously active DMA, audio and input at a snapshot,
+independently expected outputs after replay, and successful execution across the
+complete platform matrix. [Validation evidence](validation.md) records the exact
+revision and results.
 
 ## Host-neutral system and timing contract
 

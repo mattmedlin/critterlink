@@ -260,3 +260,10 @@ All prior scheduler, timer/interrupt, DMA, vector, SIF, storage and audio tests 
 [Subsystem status](subsystem-status.md) records each implementation boundary.
 The result is headless guest-driven diagnostic integration, not BIOS/game
 compatibility, complete PS2 fidelity or host audio/display/controller support.
+
+Remote verification on October 3, 2026 passed for `0358203` in
+[GitHub Actions run 37136722439](https://github.com/mattmedlin/critterlink/actions/runs/37136722439):
+all eight Debug/Release jobs on Windows x86-64, Linux x86-64, macOS ARM64 and
+macOS x86-64 built with strict warnings and passed all twenty-five suites.
+This completes issue #15 and the documented diagnostic acceptance criteria of
+milestone #4, within the subsystem limitations above.
