@@ -1,6 +1,6 @@
 # EE integer execution audit — issue #16
 
-Audit date: 2026-10-03, updated through PREF/SYNC delivery.
+Audit date: 2026-10-03, updated through SA-register/PLZCW delivery.
 This compares the decoder in `src/cpu.cpp` with Sony's EE instruction inventory.
 It is a source review, not a new conformance run. **#16 remains open.**
 
@@ -26,6 +26,8 @@ pipeline behavior. Detailed test contracts are in [cpu-coverage.md](cpu-coverage
 | Merge loads / stores | LWL, LWR, LDL, LDR, SWL, SWR, SDL, SDR |
 | Quadword transfers | LQ, SQ |
 | Traps | TEQ, TEQI, TNE, TNEI, TGE, TGEI, TGEU, TGEIU, TLT, TLTI, TLTU, TLTIU |
+| SA transfers/counts | MFSA, MTSA, MTSAB, MTSAH |
+| Leading sign count | PLZCW |
 | Hints / ordering | PREF, SYNC, SYNC.L, SYNC.P |
 | Exceptions / limited control | SYSCALL, BREAK, MFC0, MTC0, ERET |
 
@@ -35,9 +37,10 @@ Assembler aliases likewise should not inflate the missing-opcode count.
 ## Actual gaps and architectural boundary
 
 PREF and SYNC now have a tested functional contract in the synchronous
-interpreter (see CPU coverage). The EE-specific scalar-adjacent omissions are
-**MFSA, MTSA, MTSAB, MTSAH and PLZCW**; QFSRV and other packed operations belong
-with MMI. These are real gaps, even though the state already contains SA.
+interpreter (see CPU coverage). MFSA, MTSA, MTSAB, MTSAH and PLZCW now have
+functional implementations too. QFSRV and the remaining packed operations are
+still missing under #17. SA encoding and pipeline spacing remain abstractions,
+not hardware-verified behavior.
 See Sony's [instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf),
 printed pages 96, 121, 148, 151–153 and the chapter 3 inventory.
 
@@ -79,7 +82,7 @@ barrier is reached. Adding those requires extending the completion contract. See
 | Work | Tracking / evidence needed |
 | --- | --- |
 | Extend PREF/SYNC with cache/pipeline model | #17/#27: cache behavior, write-buffer flushing, pending operation completion and hardware timing; current functional contract is tested |
-| SA and PLZCW, then packed execution | #17: exact bit semantics, SA save/restore and QFSRV interaction; keep scalar and packed acceptance separate |
+| Packed execution and SA hardware behavior | #17/#27: QFSRV interaction, remaining MMI operations, physical SA encoding and pipeline spacing; scalar-adjacent functional tests do not complete packed acceptance |
 | Extend memory targets | #18: scratchpad, ROM/reset, virtual translation and privilege; test boundaries, aliases and fault precision |
 | Device memory transactions | #16 with #20: byte-enable and quadword bus API, full/empty FIFO behavior, no read-modify-write side effects, atomic rejection |
 | Full exception semantics | #17/#18: architectural unsupported-instruction and translation dispatch after the required state exists |

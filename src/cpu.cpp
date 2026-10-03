@@ -1,5 +1,6 @@
 #include "critterlink/cpu.hpp"
 
+#include <bit>
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
@@ -301,10 +302,24 @@ InstructionTrace Cpu::step(Memory& memory) {
                 if (function == 42) { write(rd, signed_less(a, b) ? 1 : 0); }
                 if (function == 43) { write(rd, a < b ? 1 : 0); }
                 break;
+            case 40: // MFSA: the saved representation is opaque to guest software.
+                if (rs != 0 || rt != 0 || shift != 0) return unsupported();
+                write(rd, state_.sa);
+                break;
+            case 41: // MTSA restores a previously saved representation.
+                if (rt != 0 || rd != 0 || shift != 0) return unsupported();
+                next.sa = a;
+                break;
             default: return unsupported();
             }
             break;
         case 1: {
+            if (rt == 24 || rt == 25) { // MTSAB / MTSAH, not REGIMM branches.
+                const auto mask = rt == 24 ? 15U : 7U;
+                const auto scale = rt == 24 ? 8U : 16U;
+                next.sa = ((word_a ^ immediate) & mask) * scale;
+                break;
+            }
             if (rt == 8 || rt == 9 || rt == 10 || rt == 11 || rt == 12 || rt == 14) {
                 // Unsigned immediate traps also sign-extend the 16-bit immediate.
                 if (trap_condition(rt - 8U, signed_immediate))
@@ -390,6 +405,15 @@ InstructionTrace Cpu::step(Memory& memory) {
             break;
         case 28:
             switch (function) {
+            case 4: { // PLZCW operates on the two low words, preserving bits 127..64.
+                if (rt != 0 || shift != 0) return unsupported();
+                const auto count = [](std::uint32_t word) {
+                    const auto normalized = (word & 0x80000000U) != 0 ? ~word : word;
+                    return static_cast<std::uint64_t>(std::countl_zero(normalized) - 1);
+                };
+                write(rd, count(word_a) | (count(static_cast<std::uint32_t>(a >> 32U)) << 32U));
+                break;
+            }
             case 0: case 1:
                 if (const auto failure = hilo(false, function)) return *failure;
                 break;

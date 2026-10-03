@@ -39,7 +39,8 @@ struct Cop0State {
 struct CpuState {
     std::array<Register128, 32> gpr{};
     Register128 hi{}, lo{};
-    std::uint32_t sa{};
+    // Functional SA representation; preserve the complete MFSA/MTSA save token.
+    std::uint64_t sa{};
     std::uint32_t pc{};
     std::uint32_t next_pc{4};
     bool delay_slot{};

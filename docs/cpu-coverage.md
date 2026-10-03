@@ -10,8 +10,9 @@ boot a BIOS or run games. Passing these tests does not establish PS2 compatibili
 `CpuState` contains 32 GPRs represented as two 64-bit lanes, both HI/LO lanes,
 SA, a 32-bit PC, pending next PC, explicit delay-slot context, explicit COP0
 registers, and a sticky stop record. Scalar instructions preserve the upper
-GPR lane; r0 is always zero, including after debugger state import. HI/LO support the two integer multiply/divide pipelines; SA instructions remain
-unimplemented.
+GPR lane; r0 is always zero, including after debugger state import. HI/LO support
+the two integer multiply/divide pipelines. SA uses a 64-bit functional representation
+for complete MFSA/MTSA save tokens.
 
 `Cpu::reset(entry)` initializes a synthetic program entry (default zero); it is
 not a hardware reset. It does not clear the separately owned `Memory` object.
@@ -60,6 +61,8 @@ limitation, not a fabricated architectural Reserved Instruction exception.
 | Trap comparisons | TGE/TGEU, TLT/TLTU, TEQ/TNE and immediate forms | Low 64-bit comparisons; even unsigned immediate forms sign-extend the immediate; true conditions dispatch code 13 |
 | Merge loads/stores | LWL/LWR, LDL/LDR, SWL/SWR, SDL/SDR | Little-endian byte selection in RAM; partial LWR preserves bits 63–32; full access checks for r0 |
 | Quadword transfers | LQ, SQ | Transfer both 64-bit lanes in RAM; SQ also writes GIF FIFO with backpressure; mask low four address bits before translation |
+| SA transfers/counts | MFSA, MTSA, MTSAB, MTSAH | Full saved-token round trips; byte/halfword shift counts; see representation and timing limits below |
+| Leading sign count | PLZCW | Two low-word counts minus the sign bit; preserves the upper GPR lane |
 | Hints / ordering | PREF, SYNC, SYNC.L, SYNC.P | Nonfaulting cache hint; barriers in the synchronous interpreter; see contract below |
 | Exception instructions | SYSCALL, BREAK | Dispatch general exception; optional instruction code bits accepted |
 | COP0 kernel subset | MFC0, MTC0, ERET | Status, Cause, EPC, ErrorEPC and exception/interrupt dispatch; see [interrupts.md](interrupts.md) |
@@ -70,7 +73,7 @@ declares unpredictable. Control transfer inside a delay slot and JALR with the
 same source and link register stop explicitly rather than choosing a hardware
 interpretation of unpredictable behavior.
 
-Missing families include MMI/SIMD, CACHE operations,
+Missing families include the remaining MMI/SIMD operations, CACHE operations,
 other COP0 registers/TLB, all FPU/COP1 and VU/COP2 operations. No instruction in these
 families is treated as a successful no-op.
 
@@ -265,3 +268,34 @@ this contract before being enabled.
 delay/annul behavior, full-FIFO stalls, pending DMA and snapshot replay. Primary
 reference: Sony's [EE instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf),
 printed pages 96 and 121.
+
+## SA registers and PLZCW (#17)
+
+MTSAB XORs the low four source/immediate bits and scales by eight; MTSAH uses
+three bits and scales by sixteen. Neither is a REGIMM branch. MFSA/MTSA transfer
+the full saved representation through the low GPR lane, preserving the upper
+lane. SA is included in CPU/System snapshots and cleared by CPU reset.
+
+The interpreter represents generated SA values as bit counts. Hardware's MFSA
+encoding is opaque; these numeric tokens are an emulator convention, not a
+verified hardware encoding. Guest code must save and restore them unchanged.
+Arbitrary MTSA values are preserved, but no QFSRV result is promised for them.
+QFSRV remains unsupported.
+
+SA writes complete immediately here. Hardware's three-instruction spacing rules
+before MTSA and after SA reads before MTSAB/MTSAH are not enforced or timed.
+Properly spaced programs are the compatibility target; results for violating
+those pipeline restrictions are not a hardware-conformance claim. The context
+fixture follows the spacing rules. Pipeline scheduling remains tracked in #27.
+
+PLZCW counts matching sign bits minus one separately in each low 32-bit word.
+All-zero/all-one words yield 31; opposite top two bits yield zero. It preserves
+bits 127..64 and handles source/destination aliasing and r0 normally. Tests cover
+every transition position, fixed mixed-word answers, reserved fields and replay.
+
+`cpu_sa` also checks all low input combinations, ignored high bits, zero-register
+operands, complete 64-bit snapshot tokens, reserved encodings, delay/annul behavior
+and a RAM save/restore sequence. Primary reference: Sony's
+[EE instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf), printed pages
+148, 151–153 and 215. MFSA/MTSA are save/restore operations; treating their values
+as portable software-generated shift counts is not supported by that contract.
