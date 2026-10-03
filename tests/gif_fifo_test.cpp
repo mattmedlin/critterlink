@@ -7,7 +7,7 @@
 namespace {
 using namespace critterlink;
 using Qword = std::array<std::uint64_t, 2>;
-constexpr std::uint32_t fifo = 0x10006000, ctrl = 0x10003000, stat = 0x10003020;
+constexpr std::uint32_t fifo = 0x10006000, ctrl = 0x10003000, gif_stat = 0x10003020;
 constexpr Qword empty_tag{0x1000000000008000ULL, 14};
 constexpr std::array<Qword, 6> sprite{{
     {0x1000000000008005ULL,14}, {6,0}, {0x10000,0x4c},
@@ -40,7 +40,7 @@ int main() {
             Memory memory;
             memory.write(ctrl,4,8); fill(memory);
             const auto full=memory.state();
-            check((memory.read(stat,4)&0x1f000008U)==0x10000008U,"FIFO status count/pause");
+            check((memory.read(gif_stat,4)&0x1f000008U)==0x10000008U,"FIFO status count/pause");
             rejects<MemoryStall>([&]{ memory.write_quadword(fifo,empty_tag); });
             check(memory.state()==full,"17th write mutated full FIFO");
             memory.advance(3);
