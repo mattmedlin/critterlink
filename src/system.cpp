@@ -9,8 +9,8 @@ namespace {
 void validate_input(const std::vector<InputEvent>& input) {
     std::uint64_t previous = 0;
     for (const auto& event : input) {
-        if (event.tick < previous || event.port >= 2 || event.state.axes != ControllerState{}.axes) {
-            throw std::invalid_argument("system input must be ordered digital-pad events for ports 0 or 1");
+        if (event.tick < previous || event.port >= 2) {
+            throw std::invalid_argument("system input must be ordered controller events for ports 0 or 1");
         }
         previous = event.tick;
     }
@@ -34,6 +34,7 @@ RunResult System::run(std::uint64_t budget, std::vector<InstructionTrace>* trace
         while (input_cursor_ < input_.size() && input_[input_cursor_].tick == now) {
             const auto& event = input_[input_cursor_++];
             pads_[event.port].set_buttons(event.state.buttons);
+            memory_.sio2().set_controller(event.port, event.state);
         }
         auto entry = cpu_.step(memory_);
         ++steps;
@@ -59,7 +60,8 @@ void System::restore(const SystemState& state) {
             throw std::invalid_argument("input snapshot does not match logical time");
         }
     }
-    System replacement(state.input);
+    System replacement(*this);
+    replacement.input_ = state.input;
     replacement.memory_.restore(state.memory);
     replacement.cpu_.restore(state.cpu);
     replacement.pads_[0].restore(state.pads[0]);

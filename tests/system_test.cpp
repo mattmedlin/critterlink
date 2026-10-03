@@ -49,7 +49,7 @@ int main() {
         bad = mid; bad.input = {{0, 0, {}}}; bad.input_cursor = 0;
         rejected([&] { system.restore(bad); });
         check(system.state() == expected, "bad input cursor restore was not atomic");
-        rejected([] { System analog({{0, 0, {0, {0, 128, 128, 128}}}}); });
+        rejected([] { System invalid_port({{0, 2, {}}}); });
 
         Memory memory;
         memory.write(0x10000020, 4, 7);

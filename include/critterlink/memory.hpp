@@ -39,6 +39,8 @@ public:
     const Hardware& hardware() const noexcept { return hardware_; }
     Iop& iop() noexcept { return hardware_.iop(); }
     const Iop& iop() const noexcept { return hardware_.iop(); }
+    Sio2& sio2() noexcept { return hardware_.sio2(); }
+    Cdvd& cdvd() noexcept { return hardware_.cdvd(); }
     MemoryState state() const;
     void restore(const MemoryState& state);
 

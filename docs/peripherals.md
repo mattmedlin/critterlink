@@ -4,7 +4,8 @@ These are host-callable diagnostic building blocks, not complete PS2 devices.
 They do not make games' audio or controller code work. No SIO2, IOP, SPU2 MMIO,
 DMA, audio clock, or operating-system input/output connection exists in these
 standalone primitives. The separate [SPU2 diagnostic](spu.md) adds an IOP-driven
-register, sound RAM and voice path.
+register, sound RAM and voice path. [SIO2](sio2.md) separately connects guest
+controller and card transactions, including scheduled analog input.
 
 ## Digital pad poll
 
@@ -41,7 +42,6 @@ than a second decoder as an oracle. Fixtures are original literal test data.
 Format references are the original reverse-engineering documentation in
 [psx-spx SPU samples](https://psx-spx.consoledev.net/ps1/spu/soundprocessingunitspu/#sample-data-brrspu-adpcm)
 and [ADPCM decoding](https://psx-spx.consoledev.net/ps1/cdr/cdromformat/#cdrom-xa-audio-adpcm-compression).
-This deliberately narrow shared-format primitive is not a validated SPU2 voice
-implementation: predictor filters, voice RAM/register access, ADSR, pitch,
-interpolation, mixing, reverb, interrupts, and 48 kHz scheduling remain future
-work. A PCM diagnostic file generated from it proves block decoding only.
+This deliberately narrow shared-format primitive only tests block decoding.
+The separate [SPU2 profile](spu.md) now implements a bounded voice engine;
+interpolation, reverb, interrupts and physical sample timing remain unsupported.

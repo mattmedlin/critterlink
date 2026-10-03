@@ -6,6 +6,8 @@
 #include "critterlink/iop.hpp"
 #include "critterlink/sif.hpp"
 #include "critterlink/spu.hpp"
+#include "critterlink/sio2.hpp"
+#include "critterlink/cdvd.hpp"
 
 #include <array>
 #include <cstdint>
@@ -42,6 +44,8 @@ struct HardwareState {
     IopState iop;
     SifState sif;
     SpuState spu;
+    Sio2State sio2;
+    CdvdState cdvd;
     bool operator==(const HardwareState&) const = default;
 };
 
@@ -63,6 +67,10 @@ public:
     const Iop& iop() const noexcept { return iop_; }
     const SifState& sif() const noexcept { return sif_.state(); }
     const SpuState& spu() const noexcept { return spu_.state(); }
+    Sio2& sio2() noexcept { return sio2_; }
+    const Sio2& sio2() const noexcept { return sio2_; }
+    Cdvd& cdvd() noexcept { return cdvd_; }
+    const Cdvd& cdvd() const noexcept { return cdvd_; }
     const GraphicsState& graphics() const noexcept { return graphics_.state(); }
 
 private:
@@ -79,6 +87,8 @@ private:
     Iop iop_;
     Sif sif_;
     Spu spu_;
+    Sio2 sio2_;
+    Cdvd cdvd_;
     std::optional<std::string> stop_;
 };
 

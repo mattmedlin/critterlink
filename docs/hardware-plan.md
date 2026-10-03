@@ -23,14 +23,14 @@ before the umbrella's broader criteria are checked off:
 | [#11](https://github.com/mattmedlin/critterlink/issues/11) | VIF and vector units | DMA channels/FIFOs beyond #9 | VIF1 normal DMA and diagnostic VU1 subset; see [vector.md](vector.md) |
 | [#12](https://github.com/mattmedlin/critterlink/issues/12) | IOP and SIF communication | #8, #10, DMA extensions | Independent IOP scalar CPU and normal SIF DMA/mailbox subset; see [sif.md](sif.md) |
 | [#13](https://github.com/mattmedlin/critterlink/issues/13) | Register-driven SPU2 audio | #12 | Two core-0 voices, manual sound RAM upload, ADPCM/ADSR and integer-pitch PCM; see [spu.md](spu.md) |
-| [#14](https://github.com/mattmedlin/critterlink/issues/14) | SIO2 controllers, memory cards and disc | #12 | Host digital-pad poll primitive only; storage/disc absent |
+| [#14](https://github.com/mattmedlin/critterlink/issues/14) | SIO2 controllers, memory cards and disc | #12 | Guest digital/analog polling, synthetic raw card transactions, ReadCD/DMA3; see [sio2.md](sio2.md), [cdvd.md](cdvd.md) |
 | [#15](https://github.com/mattmedlin/critterlink/issues/15) | Guest-driven audiovisual/input restoration | #10–#14 | CPU/DMA/timer/graphics replay works; full integration remains open |
 
 Issues #10/#11 add guest interrupt dispatch and a VIF1/VU1 diagnostic path.
 Issue #12 adds a directly initialized IOP/SIF diagnostic path. Issue #13 connects
-guest IOP halfword accesses to an SPU2 audio diagnostic. Next is SIO2 and media
-(#14), which must also consume real IOP-side transactions. Memory-card and
-disc diagnostics should use original synthetic media, never proprietary dumps.
+guest IOP halfword accesses to an SPU2 audio diagnostic. Issue #14 adds IOP-side
+controller configuration, card transactions and read-only disc DMA using original
+synthetic media. Next is the combined audiovisual/input restoration fixture (#15).
 
 ## Host-neutral system and timing contract
 
@@ -39,12 +39,13 @@ input, and an input cursor. A successful CPU instruction or guest exception entr
 bus tick. This ratio is a **diagnostic scheduling policy**, not the real EE
 clock ratio or instruction timing. Host stops advance no device time. On each
 tick timers run first, then one enabled IOP instruction, SIF endpoint transfers,
-one SPU2 logical sample, one VU1 pair,
+one SIO2 byte, one CDVD DMA qword, one SPU2 logical sample, one VU1 pair,
 up to one VIF1 DMA qword, and one GIF
 DMA qword. A stalled VIF word holds its channel without blocking timers or VU. Recorded pad input applies before the
 CPU instruction at its timestamp; same-tick samples retain supplied order.
-Analog input is rejected until supported. Direct pad polls use the serial
-diagnostic endpoint, not SIO2 MMIO.
+Scheduled buttons and axes feed the SIO2 pads; each packet latches input when
+the guest starts its transfer. Direct host pad polls remain a separate legacy
+diagnostic endpoint.
 
 The scheduler has explicit absolute time, monotonically assigned event IDs,
 stable equal-time ordering, and no host callbacks or pointers in its state.
@@ -55,13 +56,19 @@ a diagnostic. A DMA-failing tick retains earlier timer work and earlier valid
 qwords; it does not pretend the entire transfer was atomic.
 
 `System::state/restore` covers both CPUs, both complete RAMs, SIF registers/FIFOs,
-SPU2 sound RAM, transfer progress, voices, envelopes and PCM signature, scheduler queue/time, timer
+SPU2 sound RAM, transfer progress, voices, envelopes and PCM signature,
+SIO2 FIFOs/controller modes/raw cards/media identity, CDVD command/DMA/media identity,
+scheduler queue/time, timer
 prescalers/flags, DMA progress, partial VIF DMA qword, VIF upload, VU registers/memories/execution,
 partial GIF payload and pending sprite vertex,
 framebuffer, controller transaction state, input samples and cursor. Restore
 validates into a replacement before changing live state. It is an in-memory
-snapshot API, not a stable on-disk save-state format. Host file/media handles
-and graphics/audio backends are not present. `Memory::clear` clears RAM only;
+snapshot API, not a stable on-disk save-state format. A CDVD snapshot requires
+the same disc already mounted,
+and existing card mounts must match their saved identity. Card bytes are part
+of the snapshot, so restoring rewinds completed diagnostic writes as well.
+Host file/media handles and graphics/audio backends are not present.
+`Memory::clear` clears RAM only;
 construct a fresh `System` to reset everything. Advance through `System::run`
 when replaying input; directly advancing its mutable memory clock can invalidate
 the input cursor and is rejected on the next run.

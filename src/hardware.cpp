@@ -16,14 +16,32 @@ unsigned divisor(std::uint16_t mode) { return (mode & 3u) == 0 ? 1u : (mode & 3u
 void require(bool ok, const char* reason) { if (!ok) { throw std::invalid_argument(reason); } }
 class PeripheralBus final : public IopBus {
 public:
-    PeripheralBus(Sif& sif, Spu& spu) : sif_(sif), spu_(spu) {}
+    PeripheralBus(Sif& sif, Spu& spu, Sio2& sio2, Cdvd& cdvd)
+        : sif_(sif), spu_(spu), sio2_(sio2), cdvd_(cdvd) {}
+    std::uint8_t read8(std::uint32_t address) override {
+        return Sio2::address(address) ? sio2_.read8(address) : cdvd_.read8(address);
+    }
+    void write8(std::uint32_t address, std::uint8_t value) override {
+        if (Sio2::address(address)) { sio2_.write8(address, value); }
+        else { cdvd_.write8(address, value); }
+    }
     std::uint16_t read16(std::uint32_t address) override { return spu_.read16(address); }
     void write16(std::uint32_t address, std::uint16_t value) override { spu_.write16(address, value); }
-    std::uint32_t read32(std::uint32_t address) override { return sif_.iop_read32(address); }
-    void write32(std::uint32_t address, std::uint32_t value) override { sif_.iop_write32(address, value); }
+    std::uint32_t read32(std::uint32_t address) override {
+        if (Sio2::address(address)) { return sio2_.read32(address); }
+        if (Cdvd::word_address(address)) { return cdvd_.read32(address); }
+        return sif_.iop_read32(address);
+    }
+    void write32(std::uint32_t address, std::uint32_t value) override {
+        if (Sio2::address(address)) { sio2_.write32(address, value); }
+        else if (Cdvd::word_address(address)) { cdvd_.write32(address, value); }
+        else { sif_.iop_write32(address, value); }
+    }
 private:
     Sif& sif_;
     Spu& spu_;
+    Sio2& sio2_;
+    Cdvd& cdvd_;
 };
 }
 
@@ -233,13 +251,21 @@ void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram) {
     const auto target = now + ticks;
     while (auto event = scheduler_.pop_next_until(target)) {
         tick_timers();
-        PeripheralBus bus(sif_, spu_);
+        PeripheralBus bus(sif_, spu_, sio2_, cdvd_);
         iop_.step(&bus);
         if (iop_.state().stop) { stop_ = "IOP: " + *iop_.state().stop; }
         if (!stop_) {
             sif_.tick(ram, iop_.mutable_ram(), (dma_.control & 1u) != 0);
             dma_.status |= sif_.take_ee_completions();
             if (sif_.state().stop) { stop_ = "SIF: " + *sif_.state().stop; }
+        }
+        if (!stop_) {
+            sio2_.tick();
+            if (sio2_.state().stop) { stop_ = "SIO2: " + *sio2_.state().stop; }
+        }
+        if (!stop_) {
+            cdvd_.tick(iop_.mutable_ram());
+            if (cdvd_.state().stop) { stop_ = "CDVD: " + *cdvd_.state().stop; }
         }
         if (!stop_) {
             spu_.tick();
@@ -257,11 +283,11 @@ void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram) {
 }
 
 HardwareState Hardware::state() const {
-    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state()};
+    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state(), sio2_.state(), cdvd_.state()};
 }
 
 void Hardware::restore(const HardwareState& state) {
-    Hardware replacement;
+    Hardware replacement = *this;
     replacement.scheduler_.restore(state.scheduler);
     const auto& events = state.scheduler.events;
     const auto now = state.scheduler.now;
@@ -291,6 +317,8 @@ void Hardware::restore(const HardwareState& state) {
     replacement.iop_.restore(state.iop);
     replacement.sif_.restore(state.sif);
     replacement.spu_.restore(state.spu);
+    replacement.sio2_.restore(state.sio2);
+    replacement.cdvd_.restore(state.cdvd);
     replacement.vector_.restore(state.vector);
     replacement.vif_dma_ = state.vif_dma;
     replacement.graphics_.restore(state.graphics);

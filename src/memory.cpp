@@ -76,7 +76,7 @@ MemoryState Memory::state() const { return {ram_, hardware_.state()}; }
 void Memory::restore(const MemoryState& state) {
     if (state.ram.size() != ram_size) { throw std::invalid_argument("snapshot RAM must contain exactly 32 MiB"); }
     auto replacement_ram = state.ram;
-    Hardware replacement_hardware;
+    Hardware replacement_hardware = hardware_;
     replacement_hardware.restore(state.hardware);
     ram_ = std::move(replacement_ram);
     hardware_ = std::move(replacement_hardware);

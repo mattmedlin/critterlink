@@ -82,7 +82,7 @@ words and sends the result back through SIF DMA, also publishing it in a shared
 mailbox. Expected: `ticks=223 response=40 exchange-completed=1 replay=identical`.
 See the [IOP CPU subset](docs/iop.md) and [SIF transport](docs/sif.md). The IOP is
 started explicitly for this fixture; this does not boot firmware or implement
-SIFRPC, IOP interrupt dispatch or SIO2.
+SIFRPC or IOP interrupt dispatch.
 
 The register-driven audio diagnostic is available with `./build/critterlink --spu-demo`.
 An IOP program uploads an original ADPCM block through SPU2 transfer registers,
@@ -92,6 +92,15 @@ Here `audible=1` means nonzero PCM was generated; there is no host audio output.
 The [SPU2 profile](docs/spu.md) supports two core-0 voices, integer pitch,
 limited ADSR modes and direct mixing. Interpolation, the physical sample clock,
 core 1, reverb and DMA audio transfers remain unsupported.
+
+Run `./build/critterlink --io-demo` for guest-driven controller and media checks.
+The IOP polls a digital pad, selects analog mode through controller commands,
+writes and reads an original memory-card payload, and reads synthetic CD sectors
+through DMA3. Expected: `ticks=1185 digital=1 analog=1 card=1 disc=1 replay=identical`.
+Scheduled button/axis changes and in-flight transfers survive restoration.
+See [SIO2 and cards](docs/sio2.md) and [CDVD](docs/cdvd.md) for the narrow supported
+protocols and media identity checks. Images are synthetic and in memory; no
+filesystem, BIOS, commercial disc or general memory-card compatibility is claimed.
 
 ## Architecture
 
@@ -146,8 +155,9 @@ a successful remote run.
 
 A bounded scalar CPU subset, bootstrap RAM bus, static ELF loader, timer/INTC
 register subset, normal GIF DMA and diagnostic sprite renderer are implemented.
-BIOS boot, full CPU/COP0 execution, TLB, full VIF/VU and IOP/SIF, full GS/SPU2, storage,
-SIO2 device integration, desktop UI, game compatibility, and networking remain
+BIOS boot, full CPU/COP0 execution, TLB, full VIF/VU and IOP/SIF, full GS/SPU2,
+filesystem and host media persistence,
+full SIO2/CDVD functionality, desktop UI, game compatibility, and networking remain
 unimplemented. Later
 milestones will add them incrementally. No game compatibility or performance
 claims are made by this slice.

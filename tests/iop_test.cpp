@@ -38,6 +38,25 @@ void tests() {
     rejects([&] { iop.read32(Iop::ram_size); });
     rejects([&] { iop.start(2); });
     rejects([&] { iop.start(0xbfc00000); });
+    iop.write8(0xa0000181, 0x87);
+    require(iop.read8(0x80000181) == 0x87, "byte RAM aliases");
+    iop.write8(Iop::ram_size - 1, 0xaa);
+    rejects([&] { iop.read8(Iop::ram_size); });
+    iop.write32(0, 0x80010181); // LB
+    iop.write32(4, 0);
+    iop.write32(8, 0x90020181); // LBU
+    iop.write32(12, 0);
+    iop.write32(16, 0xa0010183); // SB
+    iop.start();
+    require(iop.step() && iop.state().gpr[1] == 0, "LB load delay");
+    require(iop.step() && iop.state().gpr[1] == 0xffffff87, "LB sign extension");
+    require(iop.step() && iop.step() && iop.state().gpr[2] == 0x87, "LBU zero extension");
+    require(iop.step() && iop.read8(0x183) == 0x87, "SB low byte");
+    iop.write32(0, 0x90010181); iop.write32(4, 0x8c010100); iop.start();
+    require(iop.step() && !iop.step(), "byte-word overlapping load rejection");
+    Bus byte_bus;
+    rejects([&] { byte_bus.read8(0x1f402005); });
+    rejects([&] { byte_bus.write8(0x1f402005, 0); });
     iop.write16(0xa0000182, 0x80f1);
     require(iop.read16(0x80000182) == 0x80f1 && iop.state().ram[0x182] == 0xf1,
         "halfword endian and alias");

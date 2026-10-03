@@ -199,3 +199,31 @@ Remote verification passed for `a0716c0` in
 [GitHub Actions run 37086761240](https://github.com/mattmedlin/critterlink/actions/runs/37086761240):
 all eight Debug/Release jobs on Windows x86-64, Linux x86-64, macOS ARM64 and
 macOS x86-64 built with strict warnings and passed all twenty-one suites.
+
+## Controller, card and CDVD diagnostic (#14) local validation
+
+On October 2, 2026 (America/New_York), native Apple Silicon Debug, Release and
+address/undefined-behavior sanitizer builds passed all twenty-four suites.
+The SIO2 and integrated I/O suites also passed after the final pristine-card
+snapshot validation and persistence/error test additions.
+
+`--io-demo` executes an original IOP program and reports
+`ticks=1185 digital=1 analog=1 card=1 disc=1 replay=identical`. The guest polls a
+digital controller, selects analog mode with controller commands, writes and
+reads sixteen original bytes on a synthetic card, then reads the second original
+CD sector through DMA3. Expected bytes are independently specified; the sectors
+have distinct patterns so reading the wrong sector cannot pass.
+
+Scheduled input changes during a pad packet preserve the latched reply and appear
+in the later analog poll. Snapshots taken mid-pad, mid-card-write and mid-disc-DMA
+reproduce subsequent complete state; pad/disc replay also compares EE traces.
+Wrong mounted media is rejected without changing the live system. Unit coverage
+includes exported card remount/readback, erase/programming, checksums, protection,
+FIFO bounds, absent media, CDVD status/errors, multi-sector transfers and DMA
+pause/resume. Earlier CPU, ELF, audio, vector, graphics and interrupt suites pass.
+
+The documented [SIO2](sio2.md) and [CDVD](cdvd.md) profiles use synthetic in-memory
+images. Host file persistence, filesystems, card authentication/ECC, commercial
+media, complete controller protocols and IOP interrupt dispatch remain unsupported.
+Logical transfer timing and undocumented status-bit policies are not hardware
+conformance claims. Umbrella #4 stays open pending combined integration in #15.

@@ -50,6 +50,13 @@ assistance. The register and audio arithmetic references are cited in
 `docs/spu.md`. Sample blocks and PCM expectations are original synthetic data;
 no emulator audio engine, proprietary sample or firmware was imported.
 
+The SIO2/controller/card, CDVD/DMA3 and IOP byte-access implementations were
+authored from scratch with Codex/subagent assistance. Primary PS2SDK definitions
+and original protocol research are cited in `docs/sio2.md` and `docs/cdvd.md`.
+The guest programs, raw card image and sector bytes are original synthetic
+fixtures; no card dump, disc image, firmware or emulator implementation was
+imported. Host input remains a deterministic recorded sequence.
+
 There are no vendored or downloaded C++ dependencies. The core, CLI, and tests
 use the C++ standard library provided by the selected compiler. Its distribution
 and runtime terms depend on the toolchain (MSVC, Apple Clang/libc++, or GCC/libstdc++).

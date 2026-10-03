@@ -7,6 +7,7 @@
 #include "critterlink/vector_demo.hpp"
 #include "critterlink/iop_demo.hpp"
 #include "critterlink/spu_demo.hpp"
+#include "critterlink/io_demo.hpp"
 
 #include <charconv>
 #include <iostream>
@@ -161,9 +162,22 @@ int main(int argc, char** argv) {
                                               "       critterlink --vector-demo\n"
                                               "       critterlink --iop-demo\n"
                                               "       critterlink --spu-demo\n"
+                                              "       critterlink --io-demo\n"
                                               "       critterlink --elf FILE [--steps N] [--trace] [--inspect ADDRESS]...\n"
                                               "       critterlink --help\n";
     critterlink::Tick ticks = 0;
+    if (argc == 2 && std::string_view(argv[1]) == "--io-demo") {
+        try {
+            const auto result = critterlink::run_io_demo();
+            std::cout << "I/O diagnostic: ticks=" << result.ticks << " digital=" << result.digital
+                      << " analog=" << result.analog << " card=" << result.card << " disc=" << result.disc
+                      << " replay=" << (result.replay_identical ? "identical" : "MISMATCH") << '\n';
+            return result.digital && result.analog && result.card && result.disc && result.replay_identical ? 0 : 1;
+        } catch (const std::exception& error) {
+            std::cerr << "I/O diagnostic failed: " << error.what() << '\n';
+            return 1;
+        }
+    }
     if (argc == 2 && std::string_view(argv[1]) == "--spu-demo") {
         try {
             const auto result = critterlink::run_spu_demo();

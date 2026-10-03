@@ -21,6 +21,22 @@ std::uint32_t offset(std::uint32_t instruction) {
 }
 }
 
+std::uint8_t IopBus::read8(std::uint32_t) {
+    throw std::invalid_argument("unsupported IOP byte MMIO read");
+}
+void IopBus::write8(std::uint32_t, std::uint8_t) {
+    throw std::invalid_argument("unsupported IOP byte MMIO write");
+}
+std::uint8_t Iop::read8(std::uint32_t address) const {
+    const auto p = physical(address);
+    if (p >= ram_size) throw std::invalid_argument("unsupported IOP RAM read");
+    return state_.ram[p];
+}
+void Iop::write8(std::uint32_t address, std::uint8_t value) {
+    const auto p = physical(address);
+    if (p >= ram_size) throw std::invalid_argument("unsupported IOP RAM write");
+    state_.ram[p] = value;
+}
 std::uint16_t IopBus::read16(std::uint32_t) {
     throw std::invalid_argument("unsupported IOP halfword MMIO read");
 }
@@ -119,18 +135,30 @@ bool Iop::step(IopBus* bus) {
         case 15:
             if (rs != 0) throw std::invalid_argument("unsupported IOP LUI encoding");
             write = IopLoad{rt, instruction << 16U}; break;
+        case 32:
+        case 36:
         case 33:
         case 37:
         case 35: {
             if (state_.pending_load && state_.pending_load->reg == rt)
                 throw std::invalid_argument("overlapping IOP loads to the same register unsupported");
-            const auto address = aligned(left + offset(instruction), op == 35 ? 4 : 2);
+            const bool byte = op == 32 || op == 36;
+            const auto address = aligned(left + offset(instruction), op == 35 ? 4 : byte ? 1 : 2);
             if (address >= ram_size && !bus) throw std::invalid_argument("unsupported IOP MMIO read");
-            auto value = op == 35
+            auto value = byte ? std::uint32_t{address < ram_size ? read8(address) : bus->read8(address)}
+                : op == 35
                 ? (address < ram_size ? read32(address) : bus->read32(address))
                 : std::uint32_t{address < ram_size ? read16(address) : bus->read16(address)};
+            if (op == 32 && (value & 0x80U) != 0) value |= 0xffffff00U;
             if (op == 33 && (value & 0x8000U) != 0) value |= 0xffff0000U;
             if (rt != 0) load = IopLoad{rt, value};
+            break;
+        }
+        case 40: {
+            const auto address = physical(left + offset(instruction));
+            if (address < ram_size) write8(address, static_cast<std::uint8_t>(right));
+            else if (bus) bus->write8(address, static_cast<std::uint8_t>(right));
+            else throw std::invalid_argument("unsupported IOP byte MMIO write");
             break;
         }
         case 41: {
