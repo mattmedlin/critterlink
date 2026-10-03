@@ -383,3 +383,29 @@ bit-count representation; hardware's opaque encoding and pipeline spacing are
 not verified or timed. QFSRV and the remaining packed instructions still stop as
 unsupported. See [CPU coverage](cpu-coverage.md) for the exact contract. Issues
 #16, #17 and #4 remain open; these tests do not establish full EE/game compatibility.
+
+## Packed logic, immediate shifts and QFSRV (#17)
+
+On October 3, 2026, all 36 local suites passed Apple Silicon Debug, Release and
+ASan/UBSan across full runs and the affected decoder-test rerun. The initial
+runs found one obsolete negative assertion: `0x7000003f` was expected to stop,
+but it is the now-supported PSRAW. The test now supplies a nonzero reserved rs
+field; it passed again in all three configurations without changing emulator
+code or weakening compiler checks.
+
+`cpu_packed` checks every legal funnel byte/halfword count with a byte-window
+oracle, all logical truth-table combinations and immediate shift counts with a
+bit-position oracle, both 64-bit lanes, aliases and r0, reserved encodings,
+unsupported SA values, undefined halfword right-shift counts and branch slots.
+A guest fixture loads two quadwords, saves/restores SA, executes QFSRV/PXOR and
+stores independently expected bytes. Restoring while another SA count is active
+reproduces the complete System state and subsequent traces.
+
+These eleven instructions extend functional MMI coverage, not cycle accuracy.
+SA tokens retain the emulator representation and spacing limitation. Remaining
+packed arithmetic, saturation, comparisons, permutation, multiply/divide and
+variable lane shifts are still unimplemented. #17 and #4 remain open.
+
+[GitHub Actions run 37160428822](https://github.com/mattmedlin/critterlink/actions/runs/37160428822)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`13bf674`. Existing integrated diagnostic and CLI expectations remain unchanged.
