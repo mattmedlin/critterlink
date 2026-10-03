@@ -62,6 +62,8 @@ limitation, not a fabricated architectural Reserved Instruction exception.
 | Merge loads/stores | LWL/LWR, LDL/LDR, SWL/SWR, SDL/SDR | Little-endian byte selection in RAM; partial LWR preserves bits 63–32; full access checks for r0 |
 | Quadword transfers | LQ, SQ | Transfer both 64-bit lanes in RAM; SQ also writes GIF FIFO with backpressure; mask low four address bits before translation |
 | SA transfers/counts | MFSA, MTSA, MTSAB, MTSAH | Full saved-token round trips; byte/halfword shift counts; see representation and timing limits below |
+| Packed add/subtract | PADD/PSUB B/H/W, PADDS/PSUBS B/H/W, PADDU/PSUBU B/H/W | Independent wrapping, signed saturation, or unsigned saturation in every lane |
+| Packed comparisons | PCEQ B/H/W, PCGT B/H/W | Equality and signed greater-than; all-one/zero lane masks |
 | Packed logical | PAND, POR, PXOR, PNOR | Full 128-bit Boolean results; both destination lanes replaced |
 | Packed immediate shifts | PSLLH, PSRLH, PSRAH, PSLLW, PSRLW, PSRAW | Independent 16/32-bit lanes; see halfword count restrictions below |
 | Funnel shift | QFSRV | SA-controlled 256-bit concatenation, low 128-bit result |
@@ -326,5 +328,34 @@ branch slots and original guest RAM output. The guest saves/restores SA using
 proper instruction spacing and replays from a snapshot while a different count
 is active. Primary reference: Sony's [EE instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf),
 printed pages 176, 252–253, 261, 263–264, 266–267, 269 and 285–286.
-Packed arithmetic, saturation, comparisons, permutation, packed multiply/divide,
-variable lane shifts and remaining MMI instructions are still missing.
+Packed permutation, multiply/divide, variable lane shifts and remaining MMI
+operations are still missing. Arithmetic/comparison additions follow below.
+
+## Packed add/subtract, saturation and comparisons (#17)
+
+PADD/PSUB operate independently on sixteen bytes, eight halfwords or four words;
+results wrap within each lane. PADDS/PSUBS clamp signed results to each lane's
+minimum/maximum. PADDU clamps unsigned addition to the maximum and PSUBU clamps
+unsigned subtraction to zero. No lane carries into its neighbor and none of these
+operations raises a scalar overflow exception.
+
+PCEQ produces an all-one lane for equality, otherwise zero. PCGT does the same
+for signed greater-than, including the sign boundary. All operations replace
+both 64-bit destination halves, capture sources before aliased writes, preserve
+r0 and leave HI/LO, SA and COP0 unchanged. This does not model pipeline latency.
+
+`cpu_packed_arithmetic` checks every byte-input pair for each operation, mixed
+halfword/word boundary vectors, literal word answers, source/destination aliases,
+zero-register inputs, branch delay/annul behavior and unchanged unrelated state.
+An original LQ/arithmetic/comparison/SQ guest fixture writes independently
+specified results to RAM and replays identically from a mid-program snapshot.
+Neighboring unimplemented MMI encodings still stop explicitly.
+
+Primary reference: Sony's [EE instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf),
+printed pages 160–175, 177–188 and 270–284. Signed saturation follows the stated
+signed range and saturation definition: PADDSW's printed underflow interval has
+an impossible upper bound, and PSUBSH's prose says truncation despite its
+saturation title and endpoint-selecting operation. Tests explicitly cover both
+saturation endpoints. These are manual-based functional expectations, not new
+physical-hardware measurements. Min/max, absolute value, mixed add/subtract and
+remaining MMI operations are not enabled by this batch.

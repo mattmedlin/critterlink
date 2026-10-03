@@ -37,7 +37,7 @@ if(CRITTERLINK_BUILD_FIXTURE)
 endif()
 
 if(BUILD_TESTING)
-  foreach(subsystem IN ITEMS cpu_packed cpu_sa cpu_plzcw cpu_sync gif_fifo cpu_merge cpu_quadword cpu_trap cpu_hilo cpu_branch cpu_scalar scheduler graphics peripherals hardware system cop0 interrupt vector vif_dma vector_system iop sif iop_system spu spu_system sio2 cdvd io_system integrated_system)
+  foreach(subsystem IN ITEMS cpu_packed_arithmetic cpu_packed cpu_sa cpu_plzcw cpu_sync gif_fifo cpu_merge cpu_quadword cpu_trap cpu_hilo cpu_branch cpu_scalar scheduler graphics peripherals hardware system cop0 interrupt vector vif_dma vector_system iop sif iop_system spu spu_system sio2 cdvd io_system integrated_system)
     add_executable(critterlink_${subsystem}_tests tests/${subsystem}_test.cpp)
     target_link_libraries(critterlink_${subsystem}_tests PRIVATE critterlink_core)
     critterlink_target(critterlink_${subsystem}_tests)

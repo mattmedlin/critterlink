@@ -25,6 +25,66 @@ std::string hex32(std::uint32_t value) {
     out << "0x" << std::hex << std::setfill('0') << std::setw(8) << value;
     return out.str();
 }
+
+// MMI0/1 arithmetic is independent in every byte, halfword or word lane.
+std::optional<Register128> packed_arithmetic(unsigned function, unsigned sub,
+                                            Register128 left, Register128 right) {
+    if (function != 8 && function != 40) return {};
+    enum class Operation { add, subtract, greater, equal, signed_add, signed_subtract,
+                           unsigned_add, unsigned_subtract };
+    Operation operation;
+    switch (sub) {
+    case 0: case 4: case 8:
+        if (function != 8) return {};
+        operation = Operation::add; break;
+    case 1: case 5: case 9:
+        if (function != 8) return {};
+        operation = Operation::subtract; break;
+    case 2: case 6: case 10:
+        operation = function == 8 ? Operation::greater : Operation::equal; break;
+    case 16: case 20: case 24:
+        operation = function == 8 ? Operation::signed_add : Operation::unsigned_add; break;
+    case 17: case 21: case 25:
+        operation = function == 8 ? Operation::signed_subtract : Operation::unsigned_subtract; break;
+    default: return {};
+    }
+    const unsigned width = 32U >> ((sub >> 2U) & 3U);
+    const auto span = std::uint64_t{1} << width;
+    const auto mask = span - 1U, sign = span >> 1U;
+    const auto signed_lane = [&](std::uint64_t value) {
+        return static_cast<std::int64_t>(value) -
+               ((value & sign) != 0 ? static_cast<std::int64_t>(span) : 0);
+    };
+    const auto apply = [&](std::uint64_t x, std::uint64_t y) {
+        std::uint64_t output = 0;
+        for (unsigned offset = 0; offset < 64; offset += width) {
+            const auto a = (x >> offset) & mask, b = (y >> offset) & mask;
+            std::uint64_t result = 0;
+            switch (operation) {
+            case Operation::add: result = a + b; break;
+            case Operation::subtract: result = a - b; break;
+            case Operation::greater: result = (a ^ sign) > (b ^ sign) ? mask : 0; break;
+            case Operation::equal: result = a == b ? mask : 0; break;
+            case Operation::unsigned_add: result = a + b > mask ? mask : a + b; break;
+            case Operation::unsigned_subtract: result = a < b ? 0 : a - b; break;
+            case Operation::signed_add: case Operation::signed_subtract: {
+                // At most 33 signed bits are needed, so int64 arithmetic cannot overflow.
+                auto sum = operation == Operation::signed_add ? signed_lane(a) + signed_lane(b) :
+                                                               signed_lane(a) - signed_lane(b);
+                const auto minimum = -static_cast<std::int64_t>(sign);
+                const auto maximum = static_cast<std::int64_t>(sign - 1U);
+                if (sum < minimum) sum = minimum;
+                if (sum > maximum) sum = maximum;
+                result = static_cast<std::uint64_t>(sum);
+                break;
+            }
+            }
+            output |= (result & mask) << offset;
+        }
+        return output;
+    };
+    return Register128{apply(left.low, right.low), apply(left.high, right.high)};
+}
 } // namespace
 
 Cpu::Cpu(std::uint32_t entry) noexcept { reset(entry); }
@@ -404,6 +464,10 @@ InstructionTrace Cpu::step(Memory& memory) {
             else { return unsupported(); }
             break;
         case 28:
+            if (const auto result = packed_arithmetic(function, shift, state_.gpr[rs], state_.gpr[rt])) {
+                if (rd != 0) next.gpr[rd] = *result;
+                break;
+            }
             switch (function) {
             case 9: case 41: { // MMI2 PAND/PXOR, MMI3 POR/PNOR.
                 if (shift != 18 && shift != 19) return unsupported();
