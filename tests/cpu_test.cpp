@@ -275,7 +275,8 @@ void test_faults_and_cop0() {
           !end_of_ram.state().stop->instruction &&
           end_of_ram.state().stop->diagnostic.find("delay-slot-of=0x81fffffc") != std::string::npos,
           "delay-slot fetch failure lost branch context");
-    for (std::uint32_t instruction : {0x7000003fu, 0x44000000u, 0x48000000u, 0x40816800u,
+    // PSRAW is supported; a nonzero reserved rs field must still reject.
+    for (std::uint32_t instruction : {0x7020003fu, 0x44000000u, 0x48000000u, 0x40816800u,
                                       0x40016001u, r(0, 1, 2, 3), r(33, 1, 2, 3, 1),
                                       i(15, 1, 3, 0), i(6, 1, 2, 0)}) {
         auto cpu = prepared(memory, instruction);
