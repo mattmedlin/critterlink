@@ -338,3 +338,27 @@ scheduling policy, and [EE integer audit](ee-integer-audit.md) for remaining
 instruction and memory-system gaps. Full graphics-path arbitration, other FIFOs,
 physical bus timing and general game compatibility are not established. Issues
 #16, #20 and milestone #4 remain open.
+
+## PREF and SYNC functional contract (#16)
+
+On October 3, 2026, all 33 suites passed local Apple Silicon Debug, Release and
+ASan/UBSan across the full runs and affected CLI reruns. `cpu_sync` checks every
+PREF hint and SYNC stype, nonfaulting data addresses, reserved fields, RAM
+ordering, prohibited/annulled delay slots, FIFO store backpressure, barriers with
+paused graphics and pending DMA, and restored execution.
+
+The initial runs exposed an obsolete CLI assertion: the demo result word 15 was
+expected to fault when executed, but it is valid SYNC. The extended demo now
+checks successful retirement there. A separate valid ELF containing SYNC with a
+nonzero reserved field preserves the CPU-fault exit/diagnostic assertion. Both
+CLI suites then passed in all three configurations; emulator code was unchanged.
+
+[GitHub Actions run 37146443170](https://github.com/mattmedlin/critterlink/actions/runs/37146443170)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`5ff7cca`. The integrated diagnostic expectations remain unchanged.
+
+This is the synchronous interpreter's functional ordering contract. Cache
+warming, write-buffer flushing, pending CPU operation timing and bus-cycle
+accuracy remain unmodeled; future asynchronous CPU work must extend the barrier
+implementation. See [CPU coverage](cpu-coverage.md) and the
+[integer audit](ee-integer-audit.md). Issues #16 and #4 remain open.
