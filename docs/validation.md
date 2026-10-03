@@ -289,3 +289,29 @@ tracked work. Multiply/divide timing and manual-undefined result cases remain
 unverified, with explicit stops for the latter. See [CPU coverage](cpu-coverage.md)
 and the [expanded hardware plan](hardware-plan.md); no firmware/game compatibility
 is established by these tests.
+
+## EE traps, merge accesses and quadword transfers (#16)
+
+On October 3, 2026, all 31 suites passed native Apple Silicon Debug, Release and
+fresh ASan/UBSan builds. New `cpu_trap`, `cpu_merge` and `cpu_quadword` suites
+exercise all twelve traps, every merge byte offset and both pair orders, all
+quadword address offsets, exception handlers, access failures, byte preservation,
+register aliases and restored execution. Independent review checked the EE manual
+semantics, especially partial LWR extension and LQ/SQ address masking.
+
+[GitHub Actions run 37139770598](https://github.com/mattmedlin/critterlink/actions/runs/37139770598)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`c88d82f`. The integrated CLI remains ticks=194, sprite-pixels=12, samples=194,
+pcm-signature=15153771150353129381, concurrent=1, input=1, replay=identical.
+
+An initial reused sanitizer directory retained a CPU object compiled during
+parallel edits, causing the two new memory suites to reject their opcodes. A
+probe confirmed the stale LQ decoder. The isolated `build-sanitize-ee-memory`
+build passed the complete suite; the original sanitizer directory was then
+rebuilt cleanly and all three new suites passed there too. No compiler or test
+checks were weakened.
+
+The transfers currently support RAM; merge/quadword MMIO and FIFO accesses remain
+explicitly unsupported. Full EE instruction auditing, memory/cache integration
+and multiply/divide edge-result/timing validation remain tracked work. This
+completes the requested instruction batch, not issue #16 or milestone #4.
