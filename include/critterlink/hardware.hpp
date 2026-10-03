@@ -2,6 +2,7 @@
 
 #include "critterlink/graphics.hpp"
 #include "critterlink/scheduler.hpp"
+#include "critterlink/vector.hpp"
 
 #include <array>
 #include <cstdint>
@@ -19,6 +20,13 @@ struct GifDmaState {
     std::uint32_t control{}, status{}, chcr{}, address{}, qwords{};
     bool operator==(const GifDmaState&) const = default;
 };
+struct VifDmaState {
+    std::uint32_t chcr{}, address{}, qwords{};
+    std::array<std::uint32_t, 4> pending{};
+    std::uint8_t cursor{};
+    bool loaded{};
+    bool operator==(const VifDmaState&) const = default;
+};
 struct HardwareState {
     SchedulerState scheduler;
     std::array<TimerState, 4> timers{};
@@ -26,10 +34,12 @@ struct HardwareState {
     GifDmaState dma;
     GraphicsState graphics;
     std::optional<std::string> stop;
+    VifDmaState vif_dma;
+    VectorState vector;
     bool operator==(const HardwareState&) const = default;
 };
 
-// Diagnostic logical-bus clock; no calibrated EE clock or guest IRQ dispatch.
+// Diagnostic logical-bus clock; CPU dispatches the resulting interrupt lines.
 class Hardware {
 public:
     Hardware();
@@ -42,16 +52,20 @@ public:
     bool int1() const noexcept;
     std::uint64_t now() const noexcept { return scheduler_.state().now; }
     const std::optional<std::string>& stop() const noexcept { return stop_; }
+    const VectorState& vector() const noexcept { return vector_.state(); }
     const GraphicsState& graphics() const noexcept { return graphics_.state(); }
 
 private:
     void tick_timers();
+    void tick_vif_dma(std::span<const std::uint8_t> ram);
     void tick_dma(std::span<const std::uint8_t> ram);
     Scheduler scheduler_;
     std::array<TimerState, 4> timers_{};
     std::uint32_t interrupt_status_{}, interrupt_mask_{};
     GifDmaState dma_;
     Graphics graphics_;
+    VifDmaState vif_dma_;
+    VectorUnit vector_;
     std::optional<std::string> stop_;
 };
 

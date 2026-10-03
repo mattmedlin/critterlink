@@ -33,6 +33,11 @@ instruction manuals referenced in `docs/interrupts.md` informed the supported
 register and exception semantics; no emulator source or proprietary guest
 binary was imported. The handler consists of original literal instruction words.
 
+The VIF1/VU1 diagnostic, normal channel1 DMA path, and vector fixture were
+authored from scratch with Codex/subagent assistance. Original Sony manuals
+and primary homebrew tool definitions cited in `docs/vector.md` inform the
+documented subset. No vector microprogram from a game or emulator was copied.
+
 There are no vendored or downloaded C++ dependencies. The core, CLI, and tests
 use the C++ standard library provided by the selected compiler. Its distribution
 and runtime terms depend on the toolchain (MSVC, Apple Clang/libc++, or GCC/libstdc++).

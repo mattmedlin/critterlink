@@ -69,6 +69,13 @@ returned=1 replay=identical`. The guest acknowledges timer/DMA interrupts and
 returns with ERET. See [the COP0 subset](docs/interrupts.md). Execution budgets
 include exception entries, so repeatedly faulting handlers remain bounded.
 
+The VIF1/VU1 diagnostic is available with `./build/critterlink --vector-demo`.
+Guest CPU code starts channel1 DMA to upload a microprogram and four data words.
+The microprogram calculates a destination address and copies the vector through
+a VU register. Expected: `output=7,9,11,13 dma-completed=1 replay=identical`.
+This checks the [documented transfer/integer subset](docs/vector.md), including
+upload and execution stalls; it does not implement floating-point vector math.
+
 ## Architecture
 
 - `critterlink_core`: platform-independent static library using only C++ standard
@@ -122,7 +129,7 @@ a successful remote run.
 
 A bounded scalar CPU subset, bootstrap RAM bus, static ELF loader, timer/INTC
 register subset, normal GIF DMA and diagnostic sprite renderer are implemented.
-BIOS boot, full CPU/COP0 execution, TLB, VIF/VU, IOP/SIF, full GS/SPU2, storage,
+BIOS boot, full CPU/COP0 execution, TLB, full VIF/VU, IOP/SIF, full GS/SPU2, storage,
 SIO2 device integration, desktop UI, game compatibility, and networking remain
 unimplemented. Later
 milestones will add them incrementally. No game compatibility or performance

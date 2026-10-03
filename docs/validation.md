@@ -120,3 +120,21 @@ and macOS x86-64 built and passed all thirteen suites. The initial Windows
 build caught signed/unsigned comparisons inside optional-value test assertions;
 unsigned literals fixed those warnings without changing emulator behavior or
 compiler settings. The affected suite passed again under sanitizers.
+
+## VIF1/VU1 diagnostic (#11) local validation
+
+On October 2, 2026 (America/New_York), native Apple Silicon Debug and Release
+passed all sixteen suites. After review caught MPG's 64-bit payload alignment
+requirement, the DMA path gained explicit rejection and the original fixture
+gained a leading NOP; all affected suites passed again in both configurations.
+The final complete address/undefined-behavior sanitizer run passed all sixteen
+suites. No earlier CPU, ELF, graphics or interrupt fixture regressed.
+
+New tests cover partial MPG/UNPACK state, VIF stalls, E termination delay,
+masked vector transfers, integer-immediate high bits and wrap, source bounds,
+simultaneous GIF/VIF DMA completion, independent interrupt acknowledgement,
+DMA pause/cancellation, and atomic rejection of unsupported words/snapshots.
+Full system replay starts both mid-upload and mid-VU/FLUSHE stall. The original
+`--vector-demo` guest reports 88 ticks, output `7,9,11,13`, completed DMA and
+identical replay. See [vector.md](vector.md) for the limited instruction set and
+logical timing policy; floating-point and pipeline conformance are not claimed.

@@ -18,7 +18,7 @@ subtraction, inclusive scissor bounds, and half-open sprite bounds.
 The 64-by-64 framebuffer is a diagnostic linear array of `0xAABBGGRR` words,
 not emulated GS local memory. There is no display scanout, pixel clock, VRAM
 swizzle, depth storage, texture sampling, blending, fractional rasterization,
-VU, VIF, GIF path arbitration, or privileged GS register interface. Reset uses
+VU-to-GIF XGKICK, GIF path arbitration, or privileged GS register interface. Reset uses
 explicit diagnostic defaults (full-surface scissor and disabled tests/depth
 writes), not a claim of hardware reset behavior. Q and Z do not affect this
 untextured, depth-disabled path. Unsupported formats/registers fail rather than

@@ -27,6 +27,8 @@ check_cli(0 "ticks=64 sprite-pixels=12 int0=1 int1=1 replay=identical" --hardwar
 check_cli(2 "Usage:" --hardware-demo extra)
 check_cli(0 "ticks=128 timer-services=1 dma-services=1 sprite-pixels=12 acknowledged=1 returned=1 replay=identical" --interrupt-demo)
 check_cli(2 "Usage:" --interrupt-demo extra)
+check_cli(0 "output=7,9,11,13 dma-completed=1 replay=identical" --vector-demo)
+check_cli(2 "Usage:" --vector-demo extra)
 check_cli(0 "retired=25 pc=36 r2=15 r3=5 r4=15 r5=143 ram.256.=15 budget-exhausted" --demo)
 check_cli(0 "retired=0 pc=0" --demo --steps 0)
 check_cli(0 "pc=0x00000014 opcode=0x24630001 delay-slot retired" --demo --trace)

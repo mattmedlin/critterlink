@@ -8,16 +8,17 @@ namespace critterlink {
 namespace {
 constexpr std::uint32_t timer_base = 0x10000000;
 constexpr std::uint32_t intc_stat = 0x1000f000, intc_mask = 0x1000f010;
+constexpr std::uint32_t d1_chcr = 0x10009000, d1_madr = 0x10009010, d1_qwc = 0x10009020;
 constexpr std::uint32_t d2_chcr = 0x1000a000, d2_madr = 0x1000a010, d2_qwc = 0x1000a020;
 constexpr std::uint32_t d_ctrl = 0x1000e000, d_stat = 0x1000e010;
-constexpr std::uint32_t dma_supported_status = 0x00048004; // channel 2 flag/mask and bus error
+constexpr std::uint32_t dma_supported_status = 0x00068006; // channels 1/2 flags/masks and bus error
 unsigned divisor(std::uint16_t mode) { return (mode & 3u) == 0 ? 1u : (mode & 3u) == 1 ? 16u : 256u; }
 void require(bool ok, const char* reason) { if (!ok) { throw std::invalid_argument(reason); } }
 }
 
 Hardware::Hardware() { scheduler_.schedule(1, EventType::timer); }
 bool Hardware::int0() const noexcept { return (interrupt_status_ & interrupt_mask_) != 0; }
-bool Hardware::int1() const noexcept { return (dma_.status & (dma_.status >> 16) & 4u) != 0 || (dma_.status & 0x8000u) != 0; }
+bool Hardware::int1() const noexcept { return (dma_.status & (dma_.status >> 16) & 6u) != 0 || (dma_.status & 0x8000u) != 0; }
 
 std::uint32_t Hardware::read(std::uint32_t address) const {
     if (address >= timer_base && address < timer_base + 0x2000) {
@@ -34,6 +35,9 @@ std::uint32_t Hardware::read(std::uint32_t address) const {
     case intc_mask: return interrupt_mask_;
     case d_ctrl: return dma_.control;
     case d_stat: return dma_.status;
+    case d1_chcr: return vif_dma_.chcr;
+    case d1_madr: return vif_dma_.address;
+    case d1_qwc: return vif_dma_.qwords;
     case d2_chcr: return dma_.chcr;
     case d2_madr: return dma_.address;
     case d2_qwc: return dma_.qwords;
@@ -78,6 +82,23 @@ void Hardware::write(std::uint32_t address, std::uint32_t value) {
         require((value & ~dma_supported_status) == 0, "unsupported DMA interrupt source or mask");
         dma_.status = (dma_.status & ~(value & 0xffffu)) ^ (value & 0xffff0000u);
         return;
+    case d1_madr:
+        require((vif_dma_.chcr & 0x100u) == 0, "cannot change an active VIF1 DMA address");
+        require((value & 0x8000000fu) == 0, "VIF1 DMA needs aligned RAM address; scratchpad unsupported");
+        vif_dma_.address = value;
+        return;
+    case d1_qwc:
+        require((vif_dma_.chcr & 0x100u) == 0 && value <= 0xffffu, "invalid or active VIF1 DMA count");
+        vif_dma_.qwords = value;
+        return;
+    case d1_chcr:
+        require((value & ~0x101u) == 0 && ((value & 0x100u) == 0 || (value & 1u) != 0),
+                "VIF1 DMA supports only normal RAM-to-VIF1 transfers");
+        require((vif_dma_.chcr & 0x100u) == 0 || value == 0, "active VIF1 DMA may only be stopped");
+        require(!vif_dma_.loaded || value == 0, "cannot restart partially consumed VIF1 DMA");
+        vif_dma_.chcr = value;
+        if (value == 0) { vif_dma_.loaded = false; vif_dma_.cursor = 0; vif_dma_.pending = {}; }
+        return;
     case d2_madr:
         require((dma_.chcr & 0x100u) == 0, "cannot change an active GIF DMA address");
         require((value & 15u) == 0, "GIF DMA address must be qword-aligned; scratchpad mode is unsupported");
@@ -121,6 +142,48 @@ void Hardware::tick_timers() {
     }
 }
 
+void Hardware::tick_vif_dma(std::span<const std::uint8_t> ram) {
+    auto& channel = vif_dma_;
+    if ((dma_.control & 1u) == 0 || (channel.chcr & 0x100u) == 0) { return; }
+    if (channel.qwords != 0) {
+        if (!channel.loaded) {
+            if (channel.address > ram.size() || ram.size() - channel.address < 16) {
+                channel.chcr &= ~0x100u;
+                dma_.status |= 0x8002u;
+                stop_ = "VIF1 DMA source outside RAM; transfer stopped with bus-error status";
+                return;
+            }
+            channel.pending = {};
+            for (unsigned n = 0; n < 16; ++n) {
+                channel.pending[n / 4] |= std::uint32_t{ram[channel.address + n]} << ((n % 4) * 8);
+            }
+            channel.loaded = true;
+            channel.cursor = 0;
+        }
+        try {
+            while (channel.cursor < 4) {
+                const auto word = channel.pending[channel.cursor];
+                require(vector_.state().payload != 0 || (word >> 24u) != 0x4au ||
+                        (channel.cursor & 1u) != 0, "VIF1 MPG payload requires 64-bit alignment");
+                if (!vector_.submit_word(word)) { return; }
+                ++channel.cursor;
+            }
+        } catch (const std::invalid_argument& error) {
+            stop_ = std::string("VIF1 at DMA address ") + std::to_string(channel.address) + ": " + error.what();
+            return;
+        }
+        channel.address += 16;
+        --channel.qwords;
+        channel.loaded = false;
+        channel.cursor = 0;
+        channel.pending = {};
+    }
+    if (channel.qwords == 0) {
+        channel.chcr &= ~0x100u;
+        dma_.status |= 2u;
+    }
+}
+
 void Hardware::tick_dma(std::span<const std::uint8_t> ram) {
     if ((dma_.control & 1u) == 0 || (dma_.chcr & 0x100u) == 0) { return; }
     if (dma_.qwords != 0) {
@@ -157,7 +220,10 @@ void Hardware::advance(std::uint64_t ticks, std::span<const std::uint8_t> ram) {
     const auto target = now + ticks;
     while (auto event = scheduler_.pop_next_until(target)) {
         tick_timers();
-        tick_dma(ram);
+        try { vector_.tick(); }
+        catch (const std::invalid_argument& error) { stop_ = std::string("VU1: ") + error.what(); }
+        if (!stop_) { tick_vif_dma(ram); }
+        if (!stop_) { tick_dma(ram); }
         if (event->tick != std::numeric_limits<std::uint64_t>::max()) {
             scheduler_.schedule(event->tick + 1, EventType::timer);
         }
@@ -166,7 +232,7 @@ void Hardware::advance(std::uint64_t ticks, std::span<const std::uint8_t> ram) {
 }
 
 HardwareState Hardware::state() const {
-    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_};
+    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state()};
 }
 
 void Hardware::restore(const HardwareState& state) {
@@ -191,6 +257,14 @@ void Hardware::restore(const HardwareState& state) {
             (state.dma.chcr & ~0x101u) == 0 && (state.dma.address & 15u) == 0 &&
             (state.dma.address & 0x80000000u) == 0 && state.dma.qwords <= 0xffffu &&
             ((state.dma.chcr & 0x100u) == 0 || (state.dma.chcr & 1u) != 0), "invalid DMA snapshot");
+    const auto& channel = state.vif_dma;
+    require((channel.chcr & ~0x101u) == 0 && (channel.address & 0x8000000fu) == 0 &&
+            channel.qwords <= 0xffffu && ((channel.chcr & 0x100u) == 0 || (channel.chcr & 1u) != 0) &&
+            channel.cursor < 4 && (!channel.loaded || ((channel.chcr & 0x100u) != 0 && channel.qwords != 0)) &&
+            (channel.loaded || (channel.cursor == 0 && channel.pending == std::array<std::uint32_t, 4>{})),
+            "invalid VIF1 DMA snapshot");
+    replacement.vector_.restore(state.vector);
+    replacement.vif_dma_ = state.vif_dma;
     replacement.graphics_.restore(state.graphics);
     replacement.timers_ = state.timers;
     replacement.interrupt_status_ = state.interrupt_status;

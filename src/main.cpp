@@ -4,6 +4,7 @@
 #include "critterlink/elf.hpp"
 #include "critterlink/hardware_demo.hpp"
 #include "critterlink/interrupt_demo.hpp"
+#include "critterlink/vector_demo.hpp"
 
 #include <charconv>
 #include <iostream>
@@ -155,9 +156,27 @@ int main(int argc, char** argv) {
                                               "       critterlink --demo [--steps N] [--trace]\n"
                                               "       critterlink --hardware-demo\n"
                                               "       critterlink --interrupt-demo\n"
+                                              "       critterlink --vector-demo\n"
                                               "       critterlink --elf FILE [--steps N] [--trace] [--inspect ADDRESS]...\n"
                                               "       critterlink --help\n";
     critterlink::Tick ticks = 0;
+    if (argc == 2 && std::string_view(argv[1]) == "--vector-demo") {
+        try {
+            const auto result = critterlink::run_vector_demo();
+            std::cout << "Vector diagnostic: ticks=" << result.ticks << " output=";
+            for (std::size_t n = 0; n < result.output.size(); ++n) {
+                if (n != 0) { std::cout << ','; }
+                std::cout << result.output[n];
+            }
+            std::cout << " dma-completed=" << result.dma_completed
+                      << " replay=" << (result.replay_identical ? "identical" : "MISMATCH") << '\n';
+            return result.output == std::array<std::uint32_t, 4>{7, 9, 11, 13} &&
+                   result.dma_completed && result.replay_identical ? 0 : 1;
+        } catch (const std::exception& error) {
+            std::cerr << "Vector diagnostic failed: " << error.what() << '\n';
+            return 1;
+        }
+    }
     if (argc == 2 && std::string_view(argv[1]) == "--interrupt-demo") {
         try {
             const auto result = critterlink::run_interrupt_demo();
