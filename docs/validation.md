@@ -362,3 +362,24 @@ warming, write-buffer flushing, pending CPU operation timing and bus-cycle
 accuracy remain unmodeled; future asynchronous CPU work must extend the barrier
 implementation. See [CPU coverage](cpu-coverage.md) and the
 [integer audit](ee-integer-audit.md). Issues #16 and #4 remain open.
+
+## SA-register instructions and PLZCW (#17)
+
+On October 3, 2026, all 35 suites passed local Apple Silicon Debug, Release and
+ASan/UBSan (110.10, 8.52 and 228.05 seconds respectively). `cpu_sa` covers all
+low-bit count combinations, ignored high bits, 64-bit opaque token preservation,
+zero-register operands, reserved encodings, delay/annul behavior and a properly
+spaced RAM save/restore sequence with System snapshot replay. `cpu_plzcw` checks
+every sign-transition position, fixed mixed-word results, source/destination
+aliasing, r0, upper-lane preservation, reserved fields and delay-slot replay.
+
+[GitHub Actions run 37159461092](https://github.com/mattmedlin/critterlink/actions/runs/37159461092)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`f13c961`. Existing integrated diagnostic and CLI expectations remain green.
+
+MFSA, MTSA, MTSAB, MTSAH and PLZCW now have functional implementations. SA state
+is 64-bit to avoid truncating context tokens. Generated SA values use an emulator
+bit-count representation; hardware's opaque encoding and pipeline spacing are
+not verified or timed. QFSRV and the remaining packed instructions still stop as
+unsupported. See [CPU coverage](cpu-coverage.md) for the exact contract. Issues
+#16, #17 and #4 remain open; these tests do not establish full EE/game compatibility.
