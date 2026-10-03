@@ -62,6 +62,9 @@ limitation, not a fabricated architectural Reserved Instruction exception.
 | Merge loads/stores | LWL/LWR, LDL/LDR, SWL/SWR, SDL/SDR | Little-endian byte selection in RAM; partial LWR preserves bits 63–32; full access checks for r0 |
 | Quadword transfers | LQ, SQ | Transfer both 64-bit lanes in RAM; SQ also writes GIF FIFO with backpressure; mask low four address bits before translation |
 | SA transfers/counts | MFSA, MTSA, MTSAB, MTSAH | Full saved-token round trips; byte/halfword shift counts; see representation and timing limits below |
+| Packed logical | PAND, POR, PXOR, PNOR | Full 128-bit Boolean results; both destination lanes replaced |
+| Packed immediate shifts | PSLLH, PSRLH, PSRAH, PSLLW, PSRLW, PSRAW | Independent 16/32-bit lanes; see halfword count restrictions below |
+| Funnel shift | QFSRV | SA-controlled 256-bit concatenation, low 128-bit result |
 | Leading sign count | PLZCW | Two low-word counts minus the sign bit; preserves the upper GPR lane |
 | Hints / ordering | PREF, SYNC, SYNC.L, SYNC.P | Nonfaulting cache hint; barriers in the synchronous interpreter; see contract below |
 | Exception instructions | SYSCALL, BREAK | Dispatch general exception; optional instruction code bits accepted |
@@ -279,8 +282,9 @@ lane. SA is included in CPU/System snapshots and cleared by CPU reset.
 The interpreter represents generated SA values as bit counts. Hardware's MFSA
 encoding is opaque; these numeric tokens are an emulator convention, not a
 verified hardware encoding. Guest code must save and restore them unchanged.
-Arbitrary MTSA values are preserved, but no QFSRV result is promised for them.
-QFSRV remains unsupported.
+Arbitrary MTSA values are preserved. QFSRV accepts only canonical emulator tokens
+(multiples of eight from 0 through 120); other tokens stop before destination
+writes. This validates representation, not the provenance of a token.
 
 SA writes complete immediately here. Hardware's three-instruction spacing rules
 before MTSA and after SA reads before MTSAB/MTSAH are not enforced or timed.
@@ -299,3 +303,28 @@ and a RAM save/restore sequence. Primary reference: Sony's
 [EE instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf), printed pages
 148, 151–153 and 215. MFSA/MTSA are save/restore operations; treating their values
 as portable software-generated shift counts is not supported by that contract.
+
+## Packed logical and shift operations (#17)
+
+PAND/POR/PXOR/PNOR update all 128 destination bits. QFSRV concatenates rs above
+rt, shifts by the SA count and keeps the low 128 bits. Zero selects rt; equal
+sources rotate a quadword. The implementation handles zero and 64-bit boundaries
+without undefined host shifts, captures sources before writing aliased destinations,
+and preserves r0 and unrelated state. Saved/restored canonical SA tokens work;
+physical encoding and pipeline spacing remain the limitations described above.
+
+PSLLH/PSRLH/PSRAH process eight independent halfwords; the W forms process four
+words. Arithmetic right shifts fill each lane with its own sign. Word counts use
+all five instruction bits. PSLLH uses the low four bits; PSRLH/PSRAH explicitly
+stop for counts 16–31, which the manual marks undefined despite their low-bit
+pseudocode. Nonzero reserved rs fields stop before writes. Neighboring MMI
+suboperations remain unsupported; these additions do not enable entire groups.
+
+`cpu_packed` uses a byte-window oracle for all QFSRV counts and bit-position
+oracles for packed logic and shifts, with aliases, zero registers, rejected values,
+branch slots and original guest RAM output. The guest saves/restores SA using
+proper instruction spacing and replays from a snapshot while a different count
+is active. Primary reference: Sony's [EE instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf),
+printed pages 176, 252–253, 261, 263–264, 266–267, 269 and 285–286.
+Packed arithmetic, saturation, comparisons, permutation, packed multiply/divide,
+variable lane shifts and remaining MMI instructions are still missing.
