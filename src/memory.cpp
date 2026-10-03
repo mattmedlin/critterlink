@@ -31,7 +31,7 @@ std::size_t Memory::resolve_range(std::uint32_t address, unsigned count, Access 
     }
     if (physical >= 0x10000000u && physical < 0x10010000u) {
         throw MemoryFault(MemoryError::device, access, address,
-                          "partial and quadword MMIO accesses are not implemented");
+                          "this partial or quadword MMIO access is not implemented");
     }
     if (!direct && address >= ram_size) {
         throw MemoryFault(MemoryError::translation, access, address);
@@ -64,6 +64,19 @@ std::array<std::uint64_t, 2> Memory::read_quadword(std::uint32_t address) const 
 }
 
 void Memory::write_quadword(std::uint32_t address, const std::array<std::uint64_t, 2>& value) {
+    if ((address & 15U) != 0) { throw MemoryFault(MemoryError::alignment, Access::store, address); }
+    const auto physical = address >= 0x80000000U && address < 0xc0000000U ? address & 0x1fffffffU : address;
+    if (physical >= 0x10000000U && physical < 0x10010000U) {
+        const std::array<std::uint32_t, 4> words{static_cast<std::uint32_t>(value[0]),
+            static_cast<std::uint32_t>(value[0] >> 32U), static_cast<std::uint32_t>(value[1]),
+            static_cast<std::uint32_t>(value[1] >> 32U)};
+        try {
+            if (!hardware_.write_quadword(physical, words)) throw MemoryStall{};
+        } catch (const std::invalid_argument& error) {
+            throw MemoryFault(MemoryError::device, Access::store, address, error.what());
+        }
+        return;
+    }
     const auto offset = resolve(address, 16, Access::store);
     for (unsigned i = 0; i < 16; ++i) ram_[offset + i] = static_cast<std::uint8_t>(value[i / 8] >> ((i % 8) * 8));
 }

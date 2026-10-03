@@ -52,7 +52,7 @@ Execution budgets count CPU boundaries: each instruction attempt or interrupt
 entry consumes one step, including synchronous exception dispatch. `retired`
 counts only successfully completed instructions. This bounds even a handler
 that immediately faults again. In `System`, a retired instruction or exception
-entry advances one logical device tick; host stops advance none. This is a
+entry or FIFO stall advances one logical device tick; host stops advance none. This is a
 deterministic diagnostic timing policy, not EE cycle timing. Direct `Cpu::run`
 samples existing device lines but does not advance devices. Zero budget is a
 complete no-op.

@@ -39,7 +39,7 @@ RunResult System::run(std::uint64_t budget, std::vector<InstructionTrace>* trace
         auto entry = cpu_.step(memory_);
         ++steps;
         if (entry.retired) { ++result.retired; }
-        if (entry.retired || entry.exception) { memory_.advance(1); }
+        if (entry.retired || entry.exception || entry.stalled) { memory_.advance(1); }
         if (trace) { trace->push_back(std::move(entry)); }
     }
     result.budget_exhausted = !cpu_.state().stop && !memory_.hardware().stop() && steps == budget;

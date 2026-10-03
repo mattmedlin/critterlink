@@ -31,7 +31,7 @@ void print_trace(const std::vector<critterlink::InstructionTrace>& trace) {
         }
         std::cout << (entry.delay_slot ? " delay-slot" : "");
         if (entry.exception) { std::cout << " exception=" << std::dec << *entry.exception << " dispatched\n"; }
-        else { std::cout << (entry.retired ? " retired\n" : " stopped\n"); }
+        else { std::cout << (entry.stalled ? " stalled\n" : entry.retired ? " retired\n" : " stopped\n"); }
     }
     std::cout << std::dec;
 }

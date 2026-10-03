@@ -447,6 +447,9 @@ InstructionTrace Cpu::step(Memory& memory) {
         state_ = std::move(next);
         trace.retired = true;
         return trace;
+    } catch (const MemoryStall&) {
+        trace.stalled = true;
+        return trace;
     } catch (const MemoryFault& fault) {
         const auto access = fault.access == Access::fetch ? "fetch" : fault.access == Access::load ? "load" : "store";
         const auto reason = std::string(access) + " address=" + hex32(fault.address) + ": " + fault.what();

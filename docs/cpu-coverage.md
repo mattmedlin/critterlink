@@ -21,13 +21,13 @@ requires preserving both CPU state and RAM. Save-file serialization is deferred.
 
 `step` samples interrupts, then fetches, decodes, and executes an instruction
 when no interrupt is taken. `run(memory, budget)` bounds CPU steps, including
-exception entries; its retired count includes only completed instructions. Exhausting
+exception entries and bus-stall retries; its retired count includes only completed instructions. Exhausting
 a budget is a pause, not a hardware HALT. A zero budget changes nothing. Faulted
 instructions do not retire or commit register writes/stores. Earlier retired
 instructions remain committed. A stop stays set until reset or debugger restore.
 
 An optional trace vector receives PC, raw opcode (absent on fetch failure),
-delay-slot status, retirement status, an optional dispatched exception code, and any stop diagnostic for each CPU
+delay-slot status, retirement status, an optional dispatched exception code, a bus-stall flag, and any stop diagnostic for each CPU
 boundary. Traces append across runs; callers control their lifetime/size.
 No cycle accuracy, wall time, dual issue, caches, or pipeline stalls are modeled.
 The milestone 1 `Machine` input timeline is still separate from CPU stepping;
@@ -59,7 +59,7 @@ limitation, not a fabricated architectural Reserved Instruction exception.
 | Stores | SB, SH, SW, SD | Width truncation, alignment, atomic rejection of invalid accesses |
 | Trap comparisons | TGE/TGEU, TLT/TLTU, TEQ/TNE and immediate forms | Low 64-bit comparisons; even unsigned immediate forms sign-extend the immediate; true conditions dispatch code 13 |
 | Merge loads/stores | LWL/LWR, LDL/LDR, SWL/SWR, SDL/SDR | Little-endian byte selection in RAM; partial LWR preserves bits 63–32; full access checks for r0 |
-| Quadword transfers | LQ, SQ | Transfer both 64-bit lanes in RAM; mask low four address bits before translation |
+| Quadword transfers | LQ, SQ | Transfer both 64-bit lanes in RAM; SQ also writes GIF FIFO with backpressure; mask low four address bits before translation |
 | Exception instructions | SYSCALL, BREAK | Dispatch general exception; optional instruction code bits accepted |
 | COP0 kernel subset | MFC0, MTC0, ERET | Status, Cause, EPC, ErrorEPC and exception/interrupt dispatch; see [interrupts.md](interrupts.md) |
 
@@ -209,11 +209,11 @@ wraps at 32 bits before masking. The aligned host bus API rejects misalignment;
 masking is instruction behavior, not a general weakening of memory validation.
 
 Selected-byte stores validate before mutation and write only the affected bytes.
-They never read old MMIO values to synthesize a masked write. Merge and quadword
-MMIO accesses currently stop explicitly, even for a merge selecting a full word;
-this is a backend limitation, not an ISA prohibition. FIFO quadword transfers,
-byte-enabled device accesses, TLB faults and cache behavior remain tracked in
-#17/#18/#20. Their unsupported status is not hidden by these new instructions.
+They never read old MMIO values to synthesize a masked write. Merge MMIO accesses
+still stop explicitly, even when selecting a full word. SQ now supports the
+[GIF FIFO](gif-fifo.md); other quadword MMIO accesses remain unsupported. These
+are backend limits, not ISA prohibitions. Other FIFOs, byte-enabled device
+accesses, TLB faults and cache behavior remain tracked in #17/#18/#20.
 
 `cpu_merge` checks literal results at every byte offset, both pair orders,
 signed/negative/wrapped addresses, aliases, neighboring-byte preservation and
@@ -227,3 +227,15 @@ Primary reference: the same Sony instruction manual, printed pages 72–75,
 conflicts with its two-bit byte index; its prose and byte diagram specify full
 word sign extension at offset zero. The implementation follows those consistent
 prose/table semantics and tests partial loads with noncanonical old upper bits.
+
+## FIFO backpressure and audit
+
+A full GIF FIFO leaves SQ unretired, preserves PC/register/delay-slot state and
+sets `InstructionTrace::stalled` without creating a host stop or guest exception.
+`System::run` advances devices on that boundary and retries on the next boundary;
+interrupts are sampled before each retry. `Cpu::run` alone does not advance devices,
+so it can exhaust its budget on repeated stalls without changing the queue.
+See [the FIFO contract](gif-fifo.md) for ordering and remaining timing limitations.
+
+The [complete integer inventory audit](ee-integer-audit.md) distinguishes remaining
+EE instructions from generic MIPS operations that the EE does not implement.

@@ -20,6 +20,9 @@ struct MemoryFault : std::runtime_error {
     Access access;
     std::uint32_t address;
 };
+struct MemoryStall : std::runtime_error {
+    MemoryStall() : std::runtime_error("GIF FIFO is full; retry after device progress") {}
+};
 
 struct MemoryState {
     std::vector<std::uint8_t> ram;
@@ -37,7 +40,8 @@ public:
     // RAM-only byte-enabled accesses; validate the entire range before writing.
     std::uint64_t read_partial(std::uint32_t address, unsigned count) const;
     void write_partial(std::uint32_t address, unsigned count, std::uint64_t value);
-    // Aligned bus accesses. EE LQ/SQ mask the effective address in the CPU.
+    // Aligned RAM accesses and GIF FIFO writes; a full FIFO throws MemoryStall.
+    // EE LQ/SQ mask the effective address in the CPU.
     std::array<std::uint64_t, 2> read_quadword(std::uint32_t address) const;
     void write_quadword(std::uint32_t address, const std::array<std::uint64_t, 2>& value);
     void clear() noexcept;

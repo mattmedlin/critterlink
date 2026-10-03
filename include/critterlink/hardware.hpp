@@ -32,6 +32,12 @@ struct VifDmaState {
     bool loaded{};
     bool operator==(const VifDmaState&) const = default;
 };
+struct GifFifoState {
+    std::array<std::array<std::uint32_t, 4>, 16> words{};
+    std::uint8_t head{}, count{};
+    bool paused{};
+    bool operator==(const GifFifoState&) const = default;
+};
 struct HardwareState {
     SchedulerState scheduler;
     std::array<TimerState, 4> timers{};
@@ -46,6 +52,7 @@ struct HardwareState {
     SpuState spu;
     Sio2State sio2;
     CdvdState cdvd;
+    GifFifoState gif_fifo;
     bool operator==(const HardwareState&) const = default;
 };
 
@@ -55,6 +62,8 @@ public:
     Hardware();
     std::uint32_t read(std::uint32_t physical_address) const;
     void write(std::uint32_t physical_address, std::uint32_t value);
+    // False means backpressure: no part of the qword was accepted.
+    bool write_quadword(std::uint32_t physical_address, std::array<std::uint32_t, 4> words);
     void advance(std::uint64_t ticks, std::span<std::uint8_t> ram);
     HardwareState state() const;
     void restore(const HardwareState& state);
@@ -77,6 +86,8 @@ private:
     void tick_timers();
     void tick_vif_dma(std::span<const std::uint8_t> ram);
     void tick_dma(std::span<const std::uint8_t> ram);
+    void tick_gif();
+    bool enqueue_gif(std::array<std::uint32_t, 4> words);
     Scheduler scheduler_;
     std::array<TimerState, 4> timers_{};
     std::uint32_t interrupt_status_{}, interrupt_mask_{};
@@ -89,6 +100,7 @@ private:
     Spu spu_;
     Sio2 sio2_;
     Cdvd cdvd_;
+    GifFifoState gif_fifo_;
     std::optional<std::string> stop_;
 };
 

@@ -56,6 +56,7 @@ struct InstructionTrace {
     bool retired{};
     std::optional<CpuStop> stop;
     std::optional<unsigned> exception;
+    bool stalled{};
     bool operator==(const InstructionTrace&) const = default;
 };
 

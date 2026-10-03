@@ -11,6 +11,7 @@ constexpr std::uint32_t intc_stat = 0x1000f000, intc_mask = 0x1000f010;
 constexpr std::uint32_t d1_chcr = 0x10009000, d1_madr = 0x10009010, d1_qwc = 0x10009020;
 constexpr std::uint32_t d2_chcr = 0x1000a000, d2_madr = 0x1000a010, d2_qwc = 0x1000a020;
 constexpr std::uint32_t d_ctrl = 0x1000e000, d_stat = 0x1000e010;
+constexpr std::uint32_t gif_ctrl = 0x10003000, gif_stat = 0x10003020;
 constexpr std::uint32_t dma_supported_status = 0x00668066; // channels 1/2/5/6 flags/masks and bus error
 unsigned divisor(std::uint16_t mode) { return (mode & 3u) == 0 ? 1u : (mode & 3u) == 1 ? 16u : 256u; }
 void require(bool ok, const char* reason) { if (!ok) { throw std::invalid_argument(reason); } }
@@ -61,6 +62,12 @@ std::uint32_t Hardware::read(std::uint32_t address) const {
         }
     }
     switch (address) {
+    case gif_stat: {
+        const bool pending = gif_fifo_.count != 0;
+        const bool active = !gif_fifo_.paused && (pending || graphics_.state().remaining != 0);
+        return (std::uint32_t{gif_fifo_.count} << 24U) | (gif_fifo_.paused ? 8U : 0U) |
+               (pending ? 0x40U : 0U) | (active ? 0xe00U : 0U);
+    }
     case intc_stat: return interrupt_status_;
     case intc_mask: return interrupt_mask_;
     case d_ctrl: return dma_.control;
@@ -97,6 +104,16 @@ void Hardware::write(std::uint32_t address, std::uint32_t value) {
         }
     }
     switch (address) {
+    case gif_ctrl:
+        require((value & ~9U) == 0, "unsupported GIF_CTRL bits");
+        if ((value & 1U) != 0) {
+            gif_fifo_ = {};
+            auto graphics = graphics_.state();
+            graphics.remaining = 0; // GIF reset does not reset GS registers or vertices.
+            graphics_.restore(graphics);
+        }
+        gif_fifo_.paused = (value & 8U) != 0;
+        return;
     case intc_stat:
         require((value & ~0x7fffu) == 0, "reserved INTC_STAT bits");
         interrupt_status_ &= ~value;
@@ -149,6 +166,35 @@ void Hardware::write(std::uint32_t address, std::uint32_t value) {
         return;
     default: throw std::invalid_argument("unsupported EE hardware register");
     }
+}
+
+bool Hardware::enqueue_gif(std::array<std::uint32_t, 4> words) {
+    if (gif_fifo_.count == 16) return false;
+    const auto tail = (unsigned{gif_fifo_.head} + gif_fifo_.count) % 16U;
+    gif_fifo_.words[tail] = words;
+    ++gif_fifo_.count;
+    return true;
+}
+
+bool Hardware::write_quadword(std::uint32_t address, std::array<std::uint32_t, 4> words) {
+    require(address >= 0x10006000U && address < 0x10007000U && (address & 15U) == 0,
+            "quadword MMIO writes support only GIF_FIFO");
+    return enqueue_gif(words);
+}
+
+void Hardware::tick_gif() {
+    if (gif_fifo_.paused || gif_fifo_.count == 0) return;
+    // Keep the offending qword and decoder intact on unsupported packet input.
+    auto staged = graphics_;
+    try { staged.submit_qword(gif_fifo_.words[gif_fifo_.head]); }
+    catch (const std::invalid_argument& error) {
+        stop_ = std::string("GIF/GS FIFO: ") + error.what();
+        return;
+    }
+    graphics_ = std::move(staged);
+    gif_fifo_.words[gif_fifo_.head] = {};
+    gif_fifo_.head = static_cast<std::uint8_t>((gif_fifo_.head + 1U) % 16U);
+    --gif_fifo_.count;
 }
 
 void Hardware::tick_timers() {
@@ -218,6 +264,7 @@ void Hardware::tick_vif_dma(std::span<const std::uint8_t> ram) {
 void Hardware::tick_dma(std::span<const std::uint8_t> ram) {
     if ((dma_.control & 1u) == 0 || (dma_.chcr & 0x100u) == 0) { return; }
     if (dma_.qwords != 0) {
+        if (gif_fifo_.count == 16) return;
         if (dma_.address > ram.size() || ram.size() - dma_.address < 16) {
             dma_.chcr &= ~0x100u;
             dma_.status |= 0x8004u;
@@ -228,11 +275,7 @@ void Hardware::tick_dma(std::span<const std::uint8_t> ram) {
         for (unsigned n = 0; n < 16; ++n) {
             words[n / 4] |= std::uint32_t{ram[dma_.address + n]} << ((n % 4) * 8);
         }
-        try { graphics_.submit_qword(words); }
-        catch (const std::invalid_argument& error) {
-            stop_ = std::string("GIF/GS at DMA address ") + std::to_string(dma_.address) + ": " + error.what();
-            return;
-        }
+        enqueue_gif(words);
         dma_.address += 16;
         --dma_.qwords;
     }
@@ -275,6 +318,7 @@ void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram) {
         catch (const std::invalid_argument& error) { stop_ = std::string("VU1: ") + error.what(); }
         if (!stop_) { tick_vif_dma(ram); }
         if (!stop_) { tick_dma(ram); }
+        if (!stop_) { tick_gif(); }
         if (event->tick != std::numeric_limits<std::uint64_t>::max()) {
             scheduler_.schedule(event->tick + 1, EventType::timer);
         }
@@ -283,7 +327,7 @@ void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram) {
 }
 
 HardwareState Hardware::state() const {
-    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state(), sio2_.state(), cdvd_.state()};
+    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state(), sio2_.state(), cdvd_.state(), gif_fifo_};
 }
 
 void Hardware::restore(const HardwareState& state) {
@@ -322,6 +366,12 @@ void Hardware::restore(const HardwareState& state) {
     replacement.vector_.restore(state.vector);
     replacement.vif_dma_ = state.vif_dma;
     replacement.graphics_.restore(state.graphics);
+    require(state.gif_fifo.head < 16 && state.gif_fifo.count <= 16, "invalid GIF FIFO snapshot bounds");
+    for (unsigned i = state.gif_fifo.count; i < 16; ++i) {
+        const auto slot = (unsigned{state.gif_fifo.head} + i) % 16U;
+        require(state.gif_fifo.words[slot] == std::array<std::uint32_t, 4>{}, "invalid unused GIF FIFO slot");
+    }
+    replacement.gif_fifo_ = state.gif_fifo;
     replacement.timers_ = state.timers;
     replacement.interrupt_status_ = state.interrupt_status;
     replacement.interrupt_mask_ = state.interrupt_mask;

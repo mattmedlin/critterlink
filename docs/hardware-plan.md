@@ -55,13 +55,12 @@ expanded milestone, not full hardware implementation.
 ## Host-neutral system and timing contract
 
 `System` owns CPU, RAM/hardware, two digital pad endpoints, immutable recorded
-input, and an input cursor. A successful CPU instruction or guest exception entry advances one logical
+input, and an input cursor. A successful CPU instruction, guest exception entry or bus-stall retry advances one logical
 bus tick. This ratio is a **diagnostic scheduling policy**, not the real EE
 clock ratio or instruction timing. Host stops advance no device time. On each
 tick timers run first, then one enabled IOP instruction, SIF endpoint transfers,
 one SIO2 byte, one CDVD DMA qword, one SPU2 logical sample, one VU1 pair,
-up to one VIF1 DMA qword, and one GIF
-DMA qword. A stalled VIF word holds its channel without blocking timers or VU. Recorded pad input applies before the
+up to one VIF1 DMA qword, one GIF DMA enqueue and one GIF FIFO decode. A stalled VIF word holds its channel without blocking timers or VU. Recorded pad input applies before the
 CPU instruction at its timestamp; same-tick samples retain supplied order.
 Scheduled buttons and axes feed the SIO2 pads; each packet latches input when
 the guest starts its transfer. Direct host pad polls remain a separate legacy
@@ -80,7 +79,7 @@ SPU2 sound RAM, transfer progress, voices, envelopes and PCM signature,
 SIO2 FIFOs/controller modes/raw cards/media identity, CDVD command/DMA/media identity,
 scheduler queue/time, timer
 prescalers/flags, DMA progress, partial VIF DMA qword, VIF upload, VU registers/memories/execution,
-partial GIF payload and pending sprite vertex,
+the shared GIF FIFO and pause flag, partial GIF payload and pending sprite vertex,
 framebuffer, controller transaction state, input samples and cursor. Restore
 validates into a replacement before changing live state. It is an in-memory
 snapshot API, not a stable on-disk save-state format. A CDVD snapshot requires
@@ -104,8 +103,8 @@ a cold diagnostic run.
 ## Timer, INTC and DMA profile
 
 The bus recognizes the implemented EE registers at canonical physical addresses
-and kernel aliases. Only aligned 32-bit data accesses are accepted. Other widths
-and unknown registers fail explicitly; a misaligned access remains an address
+and kernel aliases. Register accesses require aligned 32-bit data; the GIF FIFO additionally accepts
+128-bit stores. Other widths and unknown registers fail explicitly; a misaligned access remains an address
 error. Instructions cannot be fetched from MMIO.
 
 | Registers | Implemented behavior |
@@ -118,11 +117,14 @@ error. Instructions cannot be fetched from MMIO.
 | SIF0/1 channels at `0x1000c000` / `0x1000c400` | Normal EE receive/send endpoints; see [sif.md](sif.md) |
 | D1_CHCR `0x10009000`, MADR +0x10, QWC +0x20 | Normal RAM-to-VIF1 DMA with word-level stall/partial-qword state |
 | D2_CHCR `0x1000a000` | Normal memory-to-GIF direction/start only; active restart or reprogramming rejected |
+| GIF_CTRL `0x10003000`, GIF_STAT `0x10003020` | Queue reset/pause and modelled path status; see [GIF FIFO](gif-fifo.md) |
+| GIF_FIFO `0x10006000–0x10006ff0` | Shared 16-qword CPU/DMA queue; 128-bit stores only, full queue stalls |
 | D2_MADR `0x1000a010`, D2_QWC `0x1000a020` | Qword-aligned physical RAM source and 16-bit count; advance one qword per logical tick |
 
 DMA completion clears STR and latches the relevant channel status. An out-of-RAM source
 clears STR, sets channel/bus-error status and stops the diagnostic. A rejected
-GIF qword leaves MADR/QWC at the offending qword and stops. Empty transfers
+GIF qword remains at the FIFO head and stops decoding; DMA may already have
+advanced because its transfer completes when data enters the FIFO. Empty transfers
 complete on the next enabled tick. A DMA boundary does not discard a partial
 GIF packet. INT1 reflects enabled channel1/2/5/6 completion or a bus error.
 VIF1 DMA latches the source qword before consuming words. On a stall the current
