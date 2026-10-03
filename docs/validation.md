@@ -138,3 +138,8 @@ Full system replay starts both mid-upload and mid-VU/FLUSHE stall. The original
 `--vector-demo` guest reports 88 ticks, output `7,9,11,13`, completed DMA and
 identical replay. See [vector.md](vector.md) for the limited instruction set and
 logical timing policy; floating-point and pipeline conformance are not claimed.
+
+Remote verification passed for `811d0f9` in
+[GitHub Actions run 37083503427](https://github.com/mattmedlin/critterlink/actions/runs/37083503427):
+all eight Debug/Release jobs on Windows x86-64, Linux x86-64, macOS ARM64 and
+macOS x86-64 built with strict warnings and passed all sixteen suites.
