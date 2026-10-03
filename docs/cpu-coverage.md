@@ -60,6 +60,7 @@ limitation, not a fabricated architectural Reserved Instruction exception.
 | Trap comparisons | TGE/TGEU, TLT/TLTU, TEQ/TNE and immediate forms | Low 64-bit comparisons; even unsigned immediate forms sign-extend the immediate; true conditions dispatch code 13 |
 | Merge loads/stores | LWL/LWR, LDL/LDR, SWL/SWR, SDL/SDR | Little-endian byte selection in RAM; partial LWR preserves bits 63–32; full access checks for r0 |
 | Quadword transfers | LQ, SQ | Transfer both 64-bit lanes in RAM; SQ also writes GIF FIFO with backpressure; mask low four address bits before translation |
+| Hints / ordering | PREF, SYNC, SYNC.L, SYNC.P | Nonfaulting cache hint; barriers in the synchronous interpreter; see contract below |
 | Exception instructions | SYSCALL, BREAK | Dispatch general exception; optional instruction code bits accepted |
 | COP0 kernel subset | MFC0, MTC0, ERET | Status, Cause, EPC, ErrorEPC and exception/interrupt dispatch; see [interrupts.md](interrupts.md) |
 
@@ -69,7 +70,7 @@ declares unpredictable. Control transfer inside a delay slot and JALR with the
 same source and link register stop explicitly rather than choosing a hardware
 interpretation of unpredictable behavior.
 
-Missing families include MMI/SIMD, cache/synchronization,
+Missing families include MMI/SIMD, CACHE operations,
 other COP0 registers/TLB, all FPU/COP1 and VU/COP2 operations. No instruction in these
 families is treated as a successful no-op.
 
@@ -239,3 +240,28 @@ See [the FIFO contract](gif-fifo.md) for ordering and remaining timing limitatio
 
 The [complete integer inventory audit](ee-integer-audit.md) distinguishes remaining
 EE instructions from generic MIPS operations that the EE does not implement.
+
+## PREF and SYNC (#16)
+
+PREF accepts all 32 hints and performs no data access in the current cacheless
+model. Invalid, unaligned, untranslated and device addresses do not cause a data
+fault or device read. Instruction fetch and interrupt entry still follow the
+normal CPU boundary rules.
+
+SYNC accepts all 32 stypes: bit 4 selects memory ordering (L) or pipeline ordering
+(P). Nonzero rs/rt/rd fields stop. Executing either form in a branch delay slot
+stops without committing state; an annulled slot is not executed.
+
+The interpreter completes each supported CPU operation before retirement. RAM
+stores are committed immediately; FIFO stores retire after queue acceptance, or
+stall before a subsequent SYNC can execute. Both barriers are therefore already
+satisfied when reached. An accepted FIFO entry need not have been decoded, and
+SYNC does not wait for independent DMA or graphics work. This is an explicit
+functional abstraction, not a cache flush or cycle-accurate bus implementation.
+Future pending loads, write buffers and asynchronous CPU operations must extend
+this contract before being enabled.
+
+`cpu_sync` covers every hint/stype, reserved encoding bits, RAM ordering,
+delay/annul behavior, full-FIFO stalls, pending DMA and snapshot replay. Primary
+reference: Sony's [EE instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf),
+printed pages 96 and 121.

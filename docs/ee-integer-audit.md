@@ -1,6 +1,6 @@
 # EE integer execution audit — issue #16
 
-Audit date: 2026-10-03, after trap, merge-access and quadword additions.
+Audit date: 2026-10-03, updated through PREF/SYNC delivery.
 This compares the decoder in `src/cpu.cpp` with Sony's EE instruction inventory.
 It is a source review, not a new conformance run. **#16 remains open.**
 
@@ -26,6 +26,7 @@ pipeline behavior. Detailed test contracts are in [cpu-coverage.md](cpu-coverage
 | Merge loads / stores | LWL, LWR, LDL, LDR, SWL, SWR, SDL, SDR |
 | Quadword transfers | LQ, SQ |
 | Traps | TEQ, TEQI, TNE, TNEI, TGE, TGEI, TGEU, TGEIU, TLT, TLTI, TLTU, TLTIU |
+| Hints / ordering | PREF, SYNC, SYNC.L, SYNC.P |
 | Exceptions / limited control | SYSCALL, BREAK, MFC0, MTC0, ERET |
 
 NOP is the existing SLL-zero encoding, not a missing independent instruction.
@@ -33,8 +34,8 @@ Assembler aliases likewise should not inflate the missing-opcode count.
 
 ## Actual gaps and architectural boundary
 
-In the manual's chapter 2 scalar inventory, **PREF and SYNC remain missing**.
-SYNC includes the L/P variants. The EE-specific scalar-adjacent omissions are
+PREF and SYNC now have a tested functional contract in the synchronous
+interpreter (see CPU coverage). The EE-specific scalar-adjacent omissions are
 **MFSA, MTSA, MTSAB, MTSAH and PLZCW**; QFSRV and other packed operations belong
 with MMI. These are real gaps, even though the state already contains SA.
 See Sony's [instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf),
@@ -46,9 +47,9 @@ instruction backlog. Generic MIPS conformance lists are not the EE target.
 The same manual's opcode tables, printed pages 395–398, distinguish reserved,
 undefined and unsupported encodings.
 
-PREF must not become a faulting ordinary load. SYNC needs explicit ordering and
-completion semantics, including its delay-slot restriction; a silent universal
-NOP would hide unfinished device behavior. See the instruction manual, pages
+PREF is nonfaulting and SYNC enforces its encoding and delay-slot restrictions.
+The current interpreter has no pending CPU operations or write buffers when a
+barrier is reached. Adding those requires extending the completion contract. See the instruction manual, pages
 96 and 121. The [EE Core manual](https://docs.alexrp.com/mips/ee.pdf), chapters
 2–5, supplies the execution, memory and exception context beyond opcode decoding.
 
@@ -77,7 +78,7 @@ NOP would hide unfinished device behavior. See the instruction manual, pages
 
 | Work | Tracking / evidence needed |
 | --- | --- |
-| Complete PREF/SYNC contract | #16 with #17/#27: reserved encodings, nonfaulting prefetch, ordering and delay-slot tests; document any functional timing abstraction |
+| Extend PREF/SYNC with cache/pipeline model | #17/#27: cache behavior, write-buffer flushing, pending operation completion and hardware timing; current functional contract is tested |
 | SA and PLZCW, then packed execution | #17: exact bit semantics, SA save/restore and QFSRV interaction; keep scalar and packed acceptance separate |
 | Extend memory targets | #18: scratchpad, ROM/reset, virtual translation and privilege; test boundaries, aliases and fault precision |
 | Device memory transactions | #16 with #20: byte-enable and quadword bus API, full/empty FIFO behavior, no read-modify-write side effects, atomic rejection |

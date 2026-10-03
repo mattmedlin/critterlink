@@ -273,6 +273,19 @@ InstructionTrace Cpu::step(Memory& memory) {
                 break;
             case 12: return fail(StopKind::exception, "SYSCALL", 8);
             case 13: return fail(StopKind::exception, "BREAK", 9);
+            case 15:
+                if (rs != 0 || rt != 0 || rd != 0) return unsupported();
+                if (state_.delay_slot) {
+                    return fail(StopKind::unsupported_instruction,
+                                "SYNC in a branch delay slot is prohibited by the EE instruction contract");
+                }
+                // All 32 stypes are defined: bit 4 selects L (0) or P (1).
+                // This in-order interpreter completes CPU accesses before retirement:
+                // RAM is committed and FIFO stores are accepted (or the store stalls).
+                // There are no pending CPU loads, write buffers or pipeline operations.
+                // Thus both barriers are already satisfied; device/DMA completion is
+                // not a CPU store completion requirement. Revisit when adding buffers.
+                break;
             case 32: case 33: case 34: case 35:
                 if (shift != 0) { return unsupported(); }
                 if (!add_word(word_a, word_b, rd, (function & 1u) == 0, (function & 2u) != 0)) {
@@ -442,6 +455,11 @@ InstructionTrace Cpu::step(Memory& memory) {
             memory.write(address, width, b);
             break;
         }
+        case 51:
+            // PREF is a nonfaulting cache hint, including hint values 1..31 on EE.
+            // With no cache model there is nothing to warm. Do not perform a load:
+            // invalid translations are ignored and MMIO must have no read effects.
+            break;
         default: return unsupported();
         }
         state_ = std::move(next);
