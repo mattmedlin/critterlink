@@ -121,13 +121,25 @@ InstructionTrace Cpu::step(Memory& memory) {
             next.delay_slot = true;
             next.branch_pc = pc;
         };
-        const bool control = op == 1 || op == 2 || op == 3 || (op >= 4 && op <= 7) ||
+        const bool regimm_branch = op == 1 && (rt <= 3 || (rt >= 16 && rt <= 19));
+        const bool control = regimm_branch || op == 2 || op == 3 || (op >= 4 && op <= 7) ||
                              (op >= 20 && op <= 23) ||
                              (op == 0 && (function == 8 || function == 9));
         if (control && state_.delay_slot) {
             return fail(StopKind::delay_slot_branch,
                         "branch in a delay slot is unsupported; no nested branch was executed");
         }
+        const auto trap_condition = [&](unsigned condition, std::uint64_t right) {
+            switch (condition) {
+            case 0: return !signed_less(a, right);
+            case 1: return a >= right;
+            case 2: return signed_less(a, right);
+            case 3: return a < right;
+            case 4: return a == right;
+            case 6: return a != right;
+            default: return false;
+            }
+        };
         const auto add_word = [&](std::uint32_t left, std::uint32_t right,
                                   unsigned destination, bool trap, bool subtract) {
             const std::uint32_t result = subtract ? left - right : left + right;
@@ -254,6 +266,11 @@ InstructionTrace Cpu::step(Memory& memory) {
             case 24: case 25: case 26: case 27:
                 if (const auto failure = hilo(false, function)) return *failure;
                 break;
+            case 48: case 49: case 50: case 51: case 52: case 54:
+                // The ten-bit code field is software information, not a reserved field.
+                if (trap_condition(function - 48U, b))
+                    return fail(StopKind::exception, "register trap", 13);
+                break;
             case 12: return fail(StopKind::exception, "SYSCALL", 8);
             case 13: return fail(StopKind::exception, "BREAK", 9);
             case 32: case 33: case 34: case 35:
@@ -275,6 +292,12 @@ InstructionTrace Cpu::step(Memory& memory) {
             }
             break;
         case 1: {
+            if (rt == 8 || rt == 9 || rt == 10 || rt == 11 || rt == 12 || rt == 14) {
+                // Unsigned immediate traps also sign-extend the 16-bit immediate.
+                if (trap_condition(rt - 8U, signed_immediate))
+                    return fail(StopKind::exception, "immediate trap", 13);
+                break;
+            }
             if (rt != 0 && rt != 1 && rt != 2 && rt != 3 &&
                 rt != 16 && rt != 17 && rt != 18 && rt != 19) return unsupported();
             const bool link = (rt & 16U) != 0;
@@ -368,6 +391,43 @@ InstructionTrace Cpu::step(Memory& memory) {
             if (!add_doubleword(a, signed_immediate, rt, op == 24, false))
                 return fail(StopKind::exception, "signed doubleword arithmetic overflow", 12);
             break;
+        case 26: case 27: case 34: case 38:
+        case 42: case 44: case 45: case 46: {
+            const auto address = word_a + static_cast<std::uint32_t>(signed_immediate);
+            const bool load = op == 26 || op == 27 || op == 34 || op == 38;
+            const bool left = op == 26 || op == 34 || op == 42 || op == 44;
+            const unsigned width = op == 26 || op == 27 || op == 44 || op == 45 ? 8U : 4U;
+            const auto byte = address & (width - 1U);
+            const auto count = left ? byte + 1U : width - byte;
+            const auto start = left ? address & ~(width - 1U) : address;
+            const auto amount = left ? (width - count) * 8U : 0U;
+            try {
+                if (load) {
+                    const auto loaded = memory.read_partial(start, count);
+                    const auto mask = count == 8 ? ~std::uint64_t{0} : (std::uint64_t{1} << (count * 8U)) - 1U;
+                    auto value = (b & ~(mask << amount)) | (loaded << amount);
+                    // LWR preserves bits 63..32 unless the complete word is loaded.
+                    if (width == 4 && (left || byte == 0)) value = sign_extend(value, 32);
+                    write(rt, value);
+                } else {
+                    memory.write_partial(start, count, b >> amount);
+                }
+            } catch (const MemoryFault& fault) {
+                // Byte-enabled access starts may differ from the instruction's effective address.
+                throw MemoryFault(fault.reason, fault.access, address, fault.what());
+            }
+            break;
+        }
+        case 30: case 31: {
+            const auto address = (word_a + static_cast<std::uint32_t>(signed_immediate)) & ~0xfU;
+            if (op == 30) {
+                const auto value = memory.read_quadword(address);
+                if (rt != 0) next.gpr[rt] = {value[0], value[1]};
+            } else {
+                memory.write_quadword(address, {b, state_.gpr[rt].high});
+            }
+            break;
+        }
         case 32: case 33: case 35: case 36: case 37: case 39: case 55: {
             const auto address = word_a + static_cast<std::uint32_t>(signed_immediate);
             const unsigned width = op == 32 || op == 36 ? 1 : op == 33 || op == 37 ? 2 : op == 55 ? 8 : 4;

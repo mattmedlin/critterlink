@@ -57,6 +57,9 @@ limitation, not a fabricated architectural Reserved Instruction exception.
 | Jumps | J, JAL, JR, JALR | Region-preserving immediate target; PC+8 link; delayed transfer; unaligned target faults on subsequent fetch |
 | Loads | LB, LBU, LH, LHU, LW, LWU, LD | Signed/unsigned extension, alignment, little-endian assembly, negative offsets |
 | Stores | SB, SH, SW, SD | Width truncation, alignment, atomic rejection of invalid accesses |
+| Trap comparisons | TGE/TGEU, TLT/TLTU, TEQ/TNE and immediate forms | Low 64-bit comparisons; even unsigned immediate forms sign-extend the immediate; true conditions dispatch code 13 |
+| Merge loads/stores | LWL/LWR, LDL/LDR, SWL/SWR, SDL/SDR | Little-endian byte selection in RAM; partial LWR preserves bits 63–32; full access checks for r0 |
+| Quadword transfers | LQ, SQ | Transfer both 64-bit lanes in RAM; mask low four address bits before translation |
 | Exception instructions | SYSCALL, BREAK | Dispatch general exception; optional instruction code bits accepted |
 | COP0 kernel subset | MFC0, MTC0, ERET | Status, Cause, EPC, ErrorEPC and exception/interrupt dispatch; see [interrupts.md](interrupts.md) |
 
@@ -66,8 +69,7 @@ declares unpredictable. Control transfer inside a delay slot and JALR with the
 same source and link register stop explicitly rather than choosing a hardware
 interpretation of unpredictable behavior.
 
-Missing families include trap comparisons,
-unaligned merge loads/stores, quadword transfers, MMI/SIMD, cache/synchronization,
+Missing families include MMI/SIMD, cache/synchronization,
 other COP0 registers/TLB, all FPU/COP1 and VU/COP2 operations. No instruction in these
 families is treated as a successful no-op.
 
@@ -83,14 +85,16 @@ no arbitrary address masking into RAM, BIOS, scratchpad, or RAM mirroring.
 Milestone 4 adds explicit timer/INTC/GIF-DMA MMIO within the EE hardware window;
 other registers still fail. See [the register profile](hardware-plan.md).
 
-The bus accepts widths 1, 2, 4, and 8, validates alignment and the entire range
-before a write, and explicitly assembles little-endian values without host
-pointer casts. Effective addresses wrap at 32 bits. Loads to r0 still perform
+The scalar bus accepts widths 1, 2, 4, and 8. Separate RAM APIs support selected
+byte ranges and aligned 16-byte quadwords. Each store validates its entire range
+before writing, and all transfers explicitly assemble little-endian values
+without host pointer casts. Effective addresses wrap at 32 bits. Loads to r0 still perform
 access checks. Host calls with invalid widths throw `std::invalid_argument`;
 guest access failures become actionable CPU stops.
 
 For arithmetic overflow (code 12), address errors (load/fetch 4, store 5),
-SYSCALL (8), and BREAK (9), the CPU now enters a guest exception handler.
+SYSCALL (8), BREAK (9), and true trap comparisons (13), the CPU enters a guest
+exception handler.
 INTC/DMAC lines can dispatch interrupts when enabled. EPC/BD preserve delay-slot
 context, EXL suppresses interrupt reentry, and ERET resumes the saved PC.
 See [interrupts.md](interrupts.md) for masks, nested exceptions, vectors,
@@ -178,3 +182,48 @@ r0 destinations, invalid encodings and restored mixed-pipeline execution.
 HI/LO and multiply/divide references are the same manual, pages 51–53, 85–92,
 138–150 and 152–157. MADD1 follows the operation's high HI/LO lanes; the prose's
 reference to the low pipeline conflicts with that operation and instruction name.
+
+## Traps, merge accesses and quadwords (#16)
+
+All twelve trap encodings compare low 64-bit operands. Register-form code fields
+are accepted without changing the comparison. REGIMM immediate traps can execute
+in branch delay slots; they are not classified as branch instructions. A true
+condition enters the existing general exception path with code 13, preserving
+EPC/BD rules, EXL behavior and BEV vector selection. A false condition retires
+without changing registers. Tests execute a guest handler that advances EPC and
+returns through ERET, including restored continuation from inside the handler.
+
+Merge accesses use the original effective address and select bytes within its
+containing aligned word or doubleword. LWL always sign-extends its merged word;
+LWR sign-extends only when offset zero loads the entire word, otherwise keeping
+old bits 63–32. LDL/LDR merge within the low 64 bits. These loads preserve the
+upper 64-bit GPR lane. Left/right pairs work in either order without an inserted
+NOP; they remain two separate instructions, so a successful first store is not
+rolled back if the second instruction faults.
+
+LQ/SQ mask the effective address's low four bits before translation, as specified
+by the EE instruction set. Misalignment is therefore not an address exception.
+LQ loads both register lanes; SQ writes both lanes. Loading r0 still accesses
+memory, while storing r0 writes sixteen zero bytes. Effective address arithmetic
+wraps at 32 bits before masking. The aligned host bus API rejects misalignment;
+masking is instruction behavior, not a general weakening of memory validation.
+
+Selected-byte stores validate before mutation and write only the affected bytes.
+They never read old MMIO values to synthesize a masked write. Merge and quadword
+MMIO accesses currently stop explicitly, even for a merge selecting a full word;
+this is a backend limitation, not an ISA prohibition. FIFO quadword transfers,
+byte-enabled device accesses, TLB faults and cache behavior remain tracked in
+#17/#18/#20. Their unsupported status is not hidden by these new instructions.
+
+`cpu_merge` checks literal results at every byte offset, both pair orders,
+signed/negative/wrapped addresses, aliases, neighboring-byte preservation and
+replay between pair instructions. `cpu_quadword` checks all sixteen misaligned
+offsets, exact byte order, source/base aliasing, RAM endpoints, error atomicity and
+full-System restoration. `cpu_trap` tests all comparisons, delay/annul behavior,
+exception entry and the guest handler.
+
+Primary reference: the same Sony instruction manual, printed pages 72–75,
+80–83, 99–102, 117–134, 141 and 287. LWR's pseudocode condition `byte = 4`
+conflicts with its two-bit byte index; its prose and byte diagram specify full
+word sign extension at offset zero. The implementation follows those consistent
+prose/table semantics and tests partial loads with noncanonical old upper bits.

@@ -14,22 +14,58 @@ MemoryFault::MemoryFault(MemoryError reason_value, Access access_value, std::uin
 Memory::Memory() : ram_(ram_size) {}
 
 std::size_t Memory::resolve(std::uint32_t address, unsigned width, Access access) const {
-    if (width != 1 && width != 2 && width != 4 && width != 8) {
-        throw std::invalid_argument("memory width must be 1, 2, 4, or 8 bytes");
+    if (width != 1 && width != 2 && width != 4 && width != 8 && width != 16) {
+        throw std::invalid_argument("invalid aligned RAM width");
     }
     if (address % width != 0) {
         throw MemoryFault(MemoryError::alignment, access, address);
     }
+    return resolve_range(address, width, access);
+}
+
+std::size_t Memory::resolve_range(std::uint32_t address, unsigned count, Access access) const {
     auto physical = address;
-    if (address >= 0x80000000u && address < 0xc0000000u) {
+    const bool direct = address >= 0x80000000u && address < 0xc0000000u;
+    if (direct) {
         physical = address & 0x1fffffffu;
-    } else if (address >= ram_size) {
+    }
+    if (physical >= 0x10000000u && physical < 0x10010000u) {
+        throw MemoryFault(MemoryError::device, access, address,
+                          "partial and quadword MMIO accesses are not implemented");
+    }
+    if (!direct && address >= ram_size) {
         throw MemoryFault(MemoryError::translation, access, address);
     }
-    if (physical >= ram_size || width > ram_size - physical) {
+    if (physical >= ram_size || count > ram_size - physical) {
         throw MemoryFault(MemoryError::unmapped, access, address);
     }
     return physical;
+}
+
+std::uint64_t Memory::read_partial(std::uint32_t address, unsigned count) const {
+    if (count == 0 || count > 8) { throw std::invalid_argument("partial access requires 1 to 8 bytes"); }
+    const auto offset = resolve_range(address, count, Access::load);
+    std::uint64_t value = 0;
+    for (unsigned i = 0; i < count; ++i) value |= std::uint64_t{ram_[offset + i]} << (i * 8);
+    return value;
+}
+
+void Memory::write_partial(std::uint32_t address, unsigned count, std::uint64_t value) {
+    if (count == 0 || count > 8) { throw std::invalid_argument("partial access requires 1 to 8 bytes"); }
+    const auto offset = resolve_range(address, count, Access::store);
+    for (unsigned i = 0; i < count; ++i) ram_[offset + i] = static_cast<std::uint8_t>(value >> (i * 8));
+}
+
+std::array<std::uint64_t, 2> Memory::read_quadword(std::uint32_t address) const {
+    const auto offset = resolve(address, 16, Access::load);
+    std::array<std::uint64_t, 2> value{};
+    for (unsigned i = 0; i < 16; ++i) value[i / 8] |= std::uint64_t{ram_[offset + i]} << ((i % 8) * 8);
+    return value;
+}
+
+void Memory::write_quadword(std::uint32_t address, const std::array<std::uint64_t, 2>& value) {
+    const auto offset = resolve(address, 16, Access::store);
+    for (unsigned i = 0; i < 16; ++i) ram_[offset + i] = static_cast<std::uint8_t>(value[i / 8] >> ((i % 8) * 8));
 }
 
 std::uint64_t Memory::read(std::uint32_t address, unsigned width, Access access) const {

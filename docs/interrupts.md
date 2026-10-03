@@ -28,8 +28,8 @@ status, otherwise the interrupt becomes eligible again after ERET.
 | Interrupt (ExcCode 0) | `0x80000200` | `0xbfc00400` |
 | General exception | `0x80000180` | `0xbfc00380` |
 
-Overflow, SYSCALL, BREAK and alignment errors dispatch general exceptions with
-codes 12, 8, 9 and 4/5 respectively. Entry sets EXL and updates ExcCode. When EXL
+Overflow, SYSCALL, BREAK, trap comparisons and alignment errors dispatch general
+exceptions with codes 12, 8, 9, 13 and 4/5 respectively. Entry sets EXL and updates ExcCode. When EXL
 was clear, EPC saves the current PC, or the branch PC with Cause.BD set if the
 interrupted/faulting instruction was in a delay slot. This applies to untaken
 branches too. Entry discards the pending branch. If EXL was already set, EPC and

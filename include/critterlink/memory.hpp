@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <array>
 #include <span>
 #include <stdexcept>
 #include <vector>
@@ -33,6 +34,12 @@ public:
     Memory();
     std::uint64_t read(std::uint32_t address, unsigned width, Access access = Access::load) const;
     void write(std::uint32_t address, unsigned width, std::uint64_t value);
+    // RAM-only byte-enabled accesses; validate the entire range before writing.
+    std::uint64_t read_partial(std::uint32_t address, unsigned count) const;
+    void write_partial(std::uint32_t address, unsigned count, std::uint64_t value);
+    // Aligned bus accesses. EE LQ/SQ mask the effective address in the CPU.
+    std::array<std::uint64_t, 2> read_quadword(std::uint32_t address) const;
+    void write_quadword(std::uint32_t address, const std::array<std::uint64_t, 2>& value);
     void clear() noexcept;
     std::span<const std::uint8_t> bytes() const noexcept;
     void advance(std::uint64_t ticks) { hardware_.advance(ticks, ram_); }
@@ -46,6 +53,7 @@ public:
 
 private:
     std::size_t resolve(std::uint32_t address, unsigned width, Access access) const;
+    std::size_t resolve_range(std::uint32_t address, unsigned count, Access access) const;
     std::vector<std::uint8_t> ram_;
     Hardware hardware_;
 };
