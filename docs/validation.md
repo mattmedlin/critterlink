@@ -112,3 +112,11 @@ both sources acknowledged, and identical complete state/trace after restoring
 inside its handler. The prior CPU, ELF, hardware and CLI fixtures still pass.
 These results validate the [documented kernel subset](interrupts.md), not full
 COP0, TLB, BIOS execution, privilege enforcement or cycle-accurate behavior.
+
+Remote verification passed for `80be1b8` in
+[GitHub Actions run 37068858723](https://github.com/mattmedlin/critterlink/actions/runs/37068858723):
+all eight Debug/Release jobs on Windows x86-64, Linux x86-64, macOS ARM64,
+and macOS x86-64 built and passed all thirteen suites. The initial Windows
+build caught signed/unsigned comparisons inside optional-value test assertions;
+unsigned literals fixed those warnings without changing emulator behavior or
+compiler settings. The affected suite passed again under sanitizers.
