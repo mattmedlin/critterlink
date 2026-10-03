@@ -108,7 +108,7 @@ std::vector<std::uint8_t> card_response(const Sio2State& state, unsigned port) {
     const auto& packet = state.input;
     std::vector<std::uint8_t> response(packet.size(), 0);
     if (card.identity.empty()) {
-        std::fill(response.begin(), response.end(), 0xff);
+        std::fill(response.begin(), response.end(), std::uint8_t{0xff});
         return response;
     }
     const auto command = packet[1];
@@ -241,7 +241,7 @@ void finish(Sio2State& state) {
                 card.operation = CardOperation::none;
                 break;
             case 0x82:
-                std::fill_n(card.data.begin() + card.cursor, Sio2::page_size * 16, 0xff);
+                std::fill_n(card.data.begin() + card.cursor, Sio2::page_size * 16, std::uint8_t{0xff});
                 card.dirty = true;
                 card.operation = CardOperation::none;
                 break;
