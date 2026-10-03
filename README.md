@@ -82,7 +82,16 @@ words and sends the result back through SIF DMA, also publishing it in a shared
 mailbox. Expected: `ticks=223 response=40 exchange-completed=1 replay=identical`.
 See the [IOP CPU subset](docs/iop.md) and [SIF transport](docs/sif.md). The IOP is
 started explicitly for this fixture; this does not boot firmware or implement
-SIFRPC, IOP interrupt dispatch, SPU2 or SIO2.
+SIFRPC, IOP interrupt dispatch or SIO2.
+
+The register-driven audio diagnostic is available with `./build/critterlink --spu-demo`.
+An IOP program uploads an original ADPCM block through SPU2 transfer registers,
+configures a voice and keys it on and off. Expected: `ticks=135 samples=135
+signature=13041860280187223349 audible=1 released=1 replay=identical`.
+Here `audible=1` means nonzero PCM was generated; there is no host audio output.
+The [SPU2 profile](docs/spu.md) supports two core-0 voices, integer pitch,
+limited ADSR modes and direct mixing. Interpolation, the physical sample clock,
+core 1, reverb and DMA audio transfers remain unsupported.
 
 ## Architecture
 

@@ -5,6 +5,7 @@
 #include "critterlink/vector.hpp"
 #include "critterlink/iop.hpp"
 #include "critterlink/sif.hpp"
+#include "critterlink/spu.hpp"
 
 #include <array>
 #include <cstdint>
@@ -40,6 +41,7 @@ struct HardwareState {
     VectorState vector;
     IopState iop;
     SifState sif;
+    SpuState spu;
     bool operator==(const HardwareState&) const = default;
 };
 
@@ -60,6 +62,7 @@ public:
     Iop& iop() noexcept { return iop_; }
     const Iop& iop() const noexcept { return iop_; }
     const SifState& sif() const noexcept { return sif_.state(); }
+    const SpuState& spu() const noexcept { return spu_.state(); }
     const GraphicsState& graphics() const noexcept { return graphics_.state(); }
 
 private:
@@ -75,6 +78,7 @@ private:
     VectorUnit vector_;
     Iop iop_;
     Sif sif_;
+    Spu spu_;
     std::optional<std::string> stop_;
 };
 

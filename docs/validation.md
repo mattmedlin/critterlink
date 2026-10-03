@@ -169,3 +169,28 @@ Remote verification passed for `5bfeefe` in
 [GitHub Actions run 37085175296](https://github.com/mattmedlin/critterlink/actions/runs/37085175296):
 all eight Debug/Release jobs on Windows x86-64, Linux x86-64, macOS ARM64 and
 macOS x86-64 built with strict warnings and passed all nineteen suites.
+
+## SPU2 register-driven diagnostic (#13) local validation
+
+On October 2, 2026 (America/New_York), native Apple Silicon Debug, Release and
+address/undefined-behavior sanitizer builds passed all twenty-one suites.
+The SPU, IOP halfword, integrated audio and CLI suites were also checked after
+review added fixed-pitch snapshot validation and stronger audio expectations.
+
+The original IOP guest uploads ADPCM through TSA/DATA/ATTR, polls transfer
+status with LHU, and configures the voice, envelope, routing and key registers
+with SH. `--spu-demo` produces 135 logical samples and PCM signature
+`13041860280187223349`, verifies nonzero PCM and completed release, and restores
+identical full state, PCM and EE trace from a mid-attack sample boundary.
+Its literal PCM oracle and whole-stream signature were calculated independently.
+
+Tests exercise all five predictors including both history coefficients and
+negative saturation, loop start/end/repeat, all supported ADSR phases, envelope
+counters, register-driven stereo mixing, clipping, signed volume, 1x/2x pitch,
+manual transfer bounds, mid-transfer replay, invalid MMIO and atomic snapshot
+rejection. Earlier CPU, ELF, graphics, vector, interrupt and SIF suites pass.
+
+The [SPU2 profile](spu.md) explicitly limits voices, pitch and envelope modes.
+Logical sample timing, no interpolation and integer rounding are diagnostic
+policies; these checks do not establish physical SPU2 waveform conformance,
+firmware audio support or host audio playback. Umbrella #4 remains open.

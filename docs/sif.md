@@ -78,7 +78,7 @@ BIOS boot or arbitrary SDK initialization implementation.
 ## Sources and validation
 
 The containing `Hardware` owns the IOP and transport. On each logical tick,
-timers advance, one enabled IOP instruction runs, SIF transfers run, then VU,
+timers advance, one enabled IOP instruction runs, SIF transfers run, then SPU2, VU,
 VIF1 DMA and GIF DMA progress. The IOP-to-EE instruction ratio is a deterministic
 1:1 diagnostic policy, not calibrated console timing. IOP stops halt this
 coordinated run with an explicit diagnostic. The IOP defaults to disabled.

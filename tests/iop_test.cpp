@@ -18,6 +18,14 @@ struct Bus final : critterlink::IopBus {
     std::uint32_t read32(std::uint32_t p) override { address = p; return 0x12345678; }
     void write32(std::uint32_t p, std::uint32_t v) override { address = p; value = v; }
 };
+struct HalfBus final : critterlink::IopBus {
+    std::uint32_t address{};
+    std::uint16_t value{};
+    std::uint16_t read16(std::uint32_t p) override { address = p; return 0x8765; }
+    void write16(std::uint32_t p, std::uint16_t v) override { address = p; value = v; }
+    std::uint32_t read32(std::uint32_t) override { throw std::invalid_argument("word forbidden"); }
+    void write32(std::uint32_t, std::uint32_t) override { throw std::invalid_argument("word forbidden"); }
+};
 void tests() {
     using critterlink::Iop;
     Iop iop;
@@ -30,6 +38,39 @@ void tests() {
     rejects([&] { iop.read32(Iop::ram_size); });
     rejects([&] { iop.start(2); });
     rejects([&] { iop.start(0xbfc00000); });
+    iop.write16(0xa0000182, 0x80f1);
+    require(iop.read16(0x80000182) == 0x80f1 && iop.state().ram[0x182] == 0xf1,
+        "halfword endian and alias");
+    iop.write16(Iop::ram_size - 2, 0xffff);
+    rejects([&] { iop.write16(0x183, 0); });
+    rejects([&] { iop.read16(Iop::ram_size); });
+    iop.write32(0, 0x84010182); // LH r1,0x182(zero)
+    iop.write32(4, 0x24020007); // Independent load-delay instruction
+    iop.write32(8, 0x94030182); // LHU r3,0x182(zero)
+    iop.write32(12, 0);
+    iop.write32(16, 0xa4010184); // SH r1,0x184(zero)
+    iop.start();
+    require(iop.step() && iop.state().gpr[1] == 0 && iop.state().pending_load,
+        "LH delayed writeback");
+    require(iop.step() && iop.state().gpr[1] == 0xffff80f1, "LH sign extension");
+    require(iop.step() && iop.step() && iop.state().gpr[3] == 0x80f1, "LHU zero extension");
+    require(iop.step() && iop.read16(0x184) == 0x80f1, "SH truncates low halfword");
+    iop.write32(0, 0x94010182); iop.write32(4, 0x8c010100); iop.start();
+    require(iop.step() && !iop.step(), "mixed-width overlapping loads rejected");
+    iop.write32(0, 0x94010183); iop.start();
+    require(!iop.step(), "unaligned LHU rejected");
+    Bus half_bus;
+    rejects([&] { half_bus.read16(0x1f900000); });
+    rejects([&] { half_bus.write16(0x1f900000, 0); });
+    HalfBus width_bus;
+    iop.write32(0, 0x3c01bf90); // KSEG1 alias of SPU register window
+    iop.write32(4, 0x94220002); // LHU r2,2(r1)
+    iop.write32(8, 0);
+    iop.write32(12, 0xa4220004); // SH r2,4(r1)
+    iop.start();
+    for (unsigned n = 0; n < 4; ++n) require(iop.step(&width_bus), "halfword MMIO instruction");
+    require(width_bus.address == 0x1f900004 && width_bus.value == 0x8765,
+        "halfword MMIO routes physical address and exact width");
     // Old r1 is read by the load-delay instruction, then new r1 is visible.
     const std::uint32_t program[] = {
         0x24010007, 0x8c010100, 0x24220001, 0x24230001,

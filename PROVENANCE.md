@@ -44,6 +44,12 @@ and primary PS2SDK register/driver references are linked in `docs/iop.md` and
 `docs/sif.md`. They were used to establish the limited register and instruction
 contracts; no driver implementation, firmware or emulator core was imported.
 
+The SPU2 diagnostic voice engine, IOP halfword instructions and guest sample
+upload/playback fixture were authored from scratch with Codex/subagent
+assistance. The register and audio arithmetic references are cited in
+`docs/spu.md`. Sample blocks and PCM expectations are original synthetic data;
+no emulator audio engine, proprietary sample or firmware was imported.
+
 There are no vendored or downloaded C++ dependencies. The core, CLI, and tests
 use the C++ standard library provided by the selected compiler. Its distribution
 and runtime terms depend on the toolchain (MSVC, Apple Clang/libc++, or GCC/libstdc++).

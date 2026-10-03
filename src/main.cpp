@@ -6,6 +6,7 @@
 #include "critterlink/interrupt_demo.hpp"
 #include "critterlink/vector_demo.hpp"
 #include "critterlink/iop_demo.hpp"
+#include "critterlink/spu_demo.hpp"
 
 #include <charconv>
 #include <iostream>
@@ -159,9 +160,24 @@ int main(int argc, char** argv) {
                                               "       critterlink --interrupt-demo\n"
                                               "       critterlink --vector-demo\n"
                                               "       critterlink --iop-demo\n"
+                                              "       critterlink --spu-demo\n"
                                               "       critterlink --elf FILE [--steps N] [--trace] [--inspect ADDRESS]...\n"
                                               "       critterlink --help\n";
     critterlink::Tick ticks = 0;
+    if (argc == 2 && std::string_view(argv[1]) == "--spu-demo") {
+        try {
+            const auto result = critterlink::run_spu_demo();
+            std::cout << "SPU2 diagnostic: ticks=" << result.ticks << " samples=" << result.samples
+                      << " signature=" << result.signature << " audible=" << result.audible
+                      << " released=" << result.released
+                      << " replay=" << (result.replay_identical ? "identical" : "MISMATCH") << '\n';
+            std::cout << "Core 0 diagnostic PCM; interpolation and physical clock ratios remain unsupported.\n";
+            return result.audible && result.released && result.replay_identical ? 0 : 1;
+        } catch (const std::exception& error) {
+            std::cerr << "SPU2 diagnostic failed: " << error.what() << '\n';
+            return 1;
+        }
+    }
     if (argc == 2 && std::string_view(argv[1]) == "--iop-demo") {
         try {
             const auto result = critterlink::run_iop_demo();

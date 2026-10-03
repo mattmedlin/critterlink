@@ -12,6 +12,8 @@ namespace critterlink {
 class IopBus {
 public:
     virtual ~IopBus() = default;
+    virtual std::uint16_t read16(std::uint32_t physical);
+    virtual void write16(std::uint32_t physical, std::uint16_t value);
     virtual std::uint32_t read32(std::uint32_t physical) = 0;
     virtual void write32(std::uint32_t physical, std::uint32_t value) = 0;
 };
@@ -43,6 +45,8 @@ public:
     void restore(IopState state);
     // Resets CPU execution state, preserving RAM.
     void start(std::uint32_t entry = 0);
+    std::uint16_t read16(std::uint32_t address) const;
+    void write16(std::uint32_t address, std::uint16_t value);
     std::uint32_t read32(std::uint32_t address) const;
     void write32(std::uint32_t address, std::uint32_t value);
     // Returns true only if an instruction retired; faults latch an explicit stop.

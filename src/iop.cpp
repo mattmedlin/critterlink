@@ -11,8 +11,8 @@ std::uint32_t physical(std::uint32_t address) {
     if (address >= 0x80000000U && address < 0xc0000000U) return address & 0x1fffffffU;
     return address;
 }
-std::uint32_t aligned(std::uint32_t address) {
-    if ((address & 3U) != 0) throw std::invalid_argument("misaligned IOP word access");
+std::uint32_t aligned(std::uint32_t address, unsigned width = 4) {
+    if ((address & (width - 1U)) != 0) throw std::invalid_argument("misaligned IOP data access");
     return physical(address);
 }
 std::uint32_t offset(std::uint32_t instruction) {
@@ -21,6 +21,23 @@ std::uint32_t offset(std::uint32_t instruction) {
 }
 }
 
+std::uint16_t IopBus::read16(std::uint32_t) {
+    throw std::invalid_argument("unsupported IOP halfword MMIO read");
+}
+void IopBus::write16(std::uint32_t, std::uint16_t) {
+    throw std::invalid_argument("unsupported IOP halfword MMIO write");
+}
+std::uint16_t Iop::read16(std::uint32_t address) const {
+    const auto p = aligned(address, 2);
+    if (p >= ram_size) throw std::invalid_argument("unsupported IOP RAM read");
+    return static_cast<std::uint16_t>(state_.ram[p] | (std::uint32_t{state_.ram[p + 1]} << 8U));
+}
+void Iop::write16(std::uint32_t address, std::uint16_t value) {
+    const auto p = aligned(address, 2);
+    if (p >= ram_size) throw std::invalid_argument("unsupported IOP RAM write");
+    state_.ram[p] = static_cast<std::uint8_t>(value);
+    state_.ram[p + 1] = static_cast<std::uint8_t>(value >> 8U);
+}
 const IopState& Iop::state() const noexcept { return state_; }
 std::span<std::uint8_t> Iop::mutable_ram() noexcept { return state_.ram; }
 void Iop::restore(IopState state) {
@@ -102,13 +119,25 @@ bool Iop::step(IopBus* bus) {
         case 15:
             if (rs != 0) throw std::invalid_argument("unsupported IOP LUI encoding");
             write = IopLoad{rt, instruction << 16U}; break;
+        case 33:
+        case 37:
         case 35: {
             if (state_.pending_load && state_.pending_load->reg == rt)
                 throw std::invalid_argument("overlapping IOP loads to the same register unsupported");
-            const auto address = aligned(left + offset(instruction));
+            const auto address = aligned(left + offset(instruction), op == 35 ? 4 : 2);
             if (address >= ram_size && !bus) throw std::invalid_argument("unsupported IOP MMIO read");
-            const auto value = address < ram_size ? read32(address) : bus->read32(address);
+            auto value = op == 35
+                ? (address < ram_size ? read32(address) : bus->read32(address))
+                : std::uint32_t{address < ram_size ? read16(address) : bus->read16(address)};
+            if (op == 33 && (value & 0x8000U) != 0) value |= 0xffff0000U;
             if (rt != 0) load = IopLoad{rt, value};
+            break;
+        }
+        case 41: {
+            const auto address = aligned(left + offset(instruction), 2);
+            if (address < ram_size) write16(address, static_cast<std::uint16_t>(right));
+            else if (bus) bus->write16(address, static_cast<std::uint16_t>(right));
+            else throw std::invalid_argument("unsupported IOP halfword MMIO write");
             break;
         }
         case 43: {

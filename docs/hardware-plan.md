@@ -22,14 +22,14 @@ before the umbrella's broader criteria are checked off:
 | [#10](https://github.com/mattmedlin/critterlink/issues/10) | COP0 interrupt/exception dispatch and ERET | #8 | Implemented kernel diagnostic dispatch and ERET; see [interrupts.md](interrupts.md) |
 | [#11](https://github.com/mattmedlin/critterlink/issues/11) | VIF and vector units | DMA channels/FIFOs beyond #9 | VIF1 normal DMA and diagnostic VU1 subset; see [vector.md](vector.md) |
 | [#12](https://github.com/mattmedlin/critterlink/issues/12) | IOP and SIF communication | #8, #10, DMA extensions | Independent IOP scalar CPU and normal SIF DMA/mailbox subset; see [sif.md](sif.md) |
-| [#13](https://github.com/mattmedlin/critterlink/issues/13) | Register-driven SPU2 audio | #12 | Filter-zero ADPCM primitive only; no voice engine or playback |
+| [#13](https://github.com/mattmedlin/critterlink/issues/13) | Register-driven SPU2 audio | #12 | Two core-0 voices, manual sound RAM upload, ADPCM/ADSR and integer-pitch PCM; see [spu.md](spu.md) |
 | [#14](https://github.com/mattmedlin/critterlink/issues/14) | SIO2 controllers, memory cards and disc | #12 | Host digital-pad poll primitive only; storage/disc absent |
 | [#15](https://github.com/mattmedlin/critterlink/issues/15) | Guest-driven audiovisual/input restoration | #10–#14 | CPU/DMA/timer/graphics replay works; full integration remains open |
 
 Issues #10/#11 add guest interrupt dispatch and a VIF1/VU1 diagnostic path.
-Issue #12 adds a directly initialized IOP/SIF diagnostic path. Next is the
-register-driven SPU2 audio subset (#13). SPU2 and SIO2 should consume real IOP-side transactions before
-their host primitives can count as integrated console devices. Memory-card and
+Issue #12 adds a directly initialized IOP/SIF diagnostic path. Issue #13 connects
+guest IOP halfword accesses to an SPU2 audio diagnostic. Next is SIO2 and media
+(#14), which must also consume real IOP-side transactions. Memory-card and
 disc diagnostics should use original synthetic media, never proprietary dumps.
 
 ## Host-neutral system and timing contract
@@ -38,7 +38,8 @@ disc diagnostics should use original synthetic media, never proprietary dumps.
 input, and an input cursor. A successful CPU instruction or guest exception entry advances one logical
 bus tick. This ratio is a **diagnostic scheduling policy**, not the real EE
 clock ratio or instruction timing. Host stops advance no device time. On each
-tick timers run first, then one enabled IOP instruction, SIF endpoint transfers, one VU1 pair,
+tick timers run first, then one enabled IOP instruction, SIF endpoint transfers,
+one SPU2 logical sample, one VU1 pair,
 up to one VIF1 DMA qword, and one GIF
 DMA qword. A stalled VIF word holds its channel without blocking timers or VU. Recorded pad input applies before the
 CPU instruction at its timestamp; same-tick samples retain supplied order.
@@ -53,7 +54,8 @@ Unsupported graphics input or DMA source access stops device progression with
 a diagnostic. A DMA-failing tick retains earlier timer work and earlier valid
 qwords; it does not pretend the entire transfer was atomic.
 
-`System::state/restore` covers both CPUs, both complete RAMs, SIF registers/FIFOs, scheduler queue/time, timer
+`System::state/restore` covers both CPUs, both complete RAMs, SIF registers/FIFOs,
+SPU2 sound RAM, transfer progress, voices, envelopes and PCM signature, scheduler queue/time, timer
 prescalers/flags, DMA progress, partial VIF DMA qword, VIF upload, VU registers/memories/execution,
 partial GIF payload and pending sprite vertex,
 framebuffer, controller transaction state, input samples and cursor. Restore

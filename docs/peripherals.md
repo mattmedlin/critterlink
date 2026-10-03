@@ -2,7 +2,9 @@
 
 These are host-callable diagnostic building blocks, not complete PS2 devices.
 They do not make games' audio or controller code work. No SIO2, IOP, SPU2 MMIO,
-DMA, audio clock, or operating-system input/output connection exists here.
+DMA, audio clock, or operating-system input/output connection exists in these
+standalone primitives. The separate [SPU2 diagnostic](spu.md) adds an IOP-driven
+register, sound RAM and voice path.
 
 ## Digital pad poll
 

@@ -16,11 +16,14 @@ unsigned divisor(std::uint16_t mode) { return (mode & 3u) == 0 ? 1u : (mode & 3u
 void require(bool ok, const char* reason) { if (!ok) { throw std::invalid_argument(reason); } }
 class PeripheralBus final : public IopBus {
 public:
-    explicit PeripheralBus(Sif& sif) : sif_(sif) {}
+    PeripheralBus(Sif& sif, Spu& spu) : sif_(sif), spu_(spu) {}
+    std::uint16_t read16(std::uint32_t address) override { return spu_.read16(address); }
+    void write16(std::uint32_t address, std::uint16_t value) override { spu_.write16(address, value); }
     std::uint32_t read32(std::uint32_t address) override { return sif_.iop_read32(address); }
     void write32(std::uint32_t address, std::uint32_t value) override { sif_.iop_write32(address, value); }
 private:
     Sif& sif_;
+    Spu& spu_;
 };
 }
 
@@ -230,13 +233,17 @@ void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram) {
     const auto target = now + ticks;
     while (auto event = scheduler_.pop_next_until(target)) {
         tick_timers();
-        PeripheralBus bus(sif_);
+        PeripheralBus bus(sif_, spu_);
         iop_.step(&bus);
         if (iop_.state().stop) { stop_ = "IOP: " + *iop_.state().stop; }
         if (!stop_) {
             sif_.tick(ram, iop_.mutable_ram(), (dma_.control & 1u) != 0);
             dma_.status |= sif_.take_ee_completions();
             if (sif_.state().stop) { stop_ = "SIF: " + *sif_.state().stop; }
+        }
+        if (!stop_) {
+            spu_.tick();
+            if (spu_.state().stop) { stop_ = "SPU2: " + *spu_.state().stop; }
         }
         try { if (!stop_) { vector_.tick(); } }
         catch (const std::invalid_argument& error) { stop_ = std::string("VU1: ") + error.what(); }
@@ -250,7 +257,7 @@ void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram) {
 }
 
 HardwareState Hardware::state() const {
-    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state()};
+    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state()};
 }
 
 void Hardware::restore(const HardwareState& state) {
@@ -283,6 +290,7 @@ void Hardware::restore(const HardwareState& state) {
             "invalid VIF1 DMA snapshot");
     replacement.iop_.restore(state.iop);
     replacement.sif_.restore(state.sif);
+    replacement.spu_.restore(state.spu);
     replacement.vector_.restore(state.vector);
     replacement.vif_dma_ = state.vif_dma;
     replacement.graphics_.restore(state.graphics);
