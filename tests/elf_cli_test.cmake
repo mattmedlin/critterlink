@@ -2,6 +2,21 @@ file(MAKE_DIRECTORY "${WORK}")
 file(WRITE "${WORK}/bad.elf" "not an ELF")
 # Exercise paths with spaces on every platform.
 configure_file("${FIXTURE}" "${WORK}/fixture with spaces.elf" COPYONLY)
+# Make a valid ELF whose first instruction is SYNC with a nonzero reserved rd.
+# Use an explicitly invalid encoding rather than an opcode awaiting implementation.
+execute_process(COMMAND "${PYTHON}" -c
+  "from pathlib import Path; import sys; image=bytearray(Path(sys.argv[1]).read_bytes()); image[0x100:0x104]=(0x0000080f).to_bytes(4,'little'); Path(sys.argv[2]).write_bytes(image)"
+  "${FIXTURE}" "${WORK}/invalid-opcode.elf" RESULT_VARIABLE fixture_code)
+if(NOT fixture_code EQUAL 0)
+  message(FATAL_ERROR "Could not create invalid-opcode ELF")
+endif()
+execute_process(COMMAND "${CLI}" --elf "${WORK}/invalid-opcode.elf" --steps 1 --trace
+  RESULT_VARIABLE fault_code OUTPUT_VARIABLE fault_output ERROR_VARIABLE fault_error TIMEOUT 20)
+if(NOT fault_code EQUAL 1
+   OR NOT fault_error MATCHES "pc=0x00100000 opcode=0x0000080f: unsupported"
+   OR NOT fault_output MATCHES "retired=0 pc=0x00100000 stopped")
+  message(FATAL_ERROR "CPU fault CLI contract failed: ${fault_code}: ${fault_output} / ${fault_error}")
+endif()
 function(run expected_code expected_text)
   execute_process(COMMAND "${CLI}" ${ARGN} RESULT_VARIABLE code
     OUTPUT_VARIABLE output ERROR_VARIABLE error TIMEOUT 20)

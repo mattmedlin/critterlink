@@ -59,6 +59,7 @@ if(BUILD_TESTING)
     add_test(NAME elf_loader COMMAND critterlink_elf_tests "${HOMEBREW_ELF}")
     add_test(NAME elf_cli COMMAND ${CMAKE_COMMAND}
       -DCLI=$<TARGET_FILE:critterlink> -DFIXTURE=${HOMEBREW_ELF}
+      -DPYTHON=${Python3_EXECUTABLE}
       -DWORK=${CMAKE_CURRENT_BINARY_DIR}/elf-cli-tests
       -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/elf_cli_test.cmake)
     add_test(NAME fixture_reproducible COMMAND ${CMAKE_COMMAND}

@@ -57,11 +57,12 @@ if(NOT code EQUAL 2 OR NOT error MATCHES "Invalid tick count" OR NOT output STRE
   message(FATAL_ERROR "Empty tick argument was not rejected correctly")
 endif()
 
-# Running beyond the fixture eventually fetches its data word as an unsupported
-# instruction. This exercises the CLI's real CPU-fault exit and diagnostic path.
+# Running beyond the fixture reaches its result word, which is a valid SYNC.
+# The explicit invalid-opcode ELF case tests the CPU-fault CLI path separately.
 execute_process(COMMAND "${CLI}" --demo --steps 100 --trace RESULT_VARIABLE code
   OUTPUT_VARIABLE output ERROR_VARIABLE error TIMEOUT 5)
-if(NOT code EQUAL 1 OR NOT error MATCHES "pc=0x00000100 opcode=0x0000000f: unsupported"
-   OR NOT output MATCHES "retired=80 pc=256" OR NOT output MATCHES "stopped")
-  message(FATAL_ERROR "CPU fault CLI contract failed: ${code}: ${output} / ${error}")
+if(NOT code EQUAL 0 OR NOT error STREQUAL ""
+   OR NOT output MATCHES "pc=0x00000100 opcode=0x0000000f retired"
+   OR NOT output MATCHES "retired=100 pc=336" OR NOT output MATCHES "budget-exhausted")
+  message(FATAL_ERROR "Extended demo SYNC contract failed: ${code}: ${output} / ${error}")
 endif()
