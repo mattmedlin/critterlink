@@ -102,6 +102,15 @@ See [SIO2 and cards](docs/sio2.md) and [CDVD](docs/cdvd.md) for the narrow suppo
 protocols and media identity checks. Images are synthetic and in memory; no
 filesystem, BIOS, commercial disc or general memory-card compatibility is claimed.
 
+The combined milestone diagnostic is `./build/critterlink --integrated-demo`.
+One EE/IOP run drives GIF graphics, SPU2 audio and SIO2 input. At tick 95 all
+three are active; restoration reproduces subsequent execution and output,
+including a pending input change. Expected: `ticks=194 sprite-pixels=12
+samples=194 pcm-signature=15153771150353129381 concurrent=1 input=1 replay=identical`.
+See [the combined fixture](docs/integrated.md) and
+[complete subsystem status](docs/subsystem-status.md). This verifies headless
+diagnostic data, not BIOS boot, game compatibility or host display/audio playback.
+
 ## Architecture
 
 - `critterlink_core`: platform-independent static library using only C++ standard

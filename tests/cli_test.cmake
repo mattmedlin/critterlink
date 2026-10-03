@@ -35,6 +35,8 @@ check_cli(0 "ticks=135 samples=135 signature=13041860280187223349 audible=1 rele
 check_cli(2 "Usage:" --spu-demo extra)
 check_cli(0 "ticks=1185 digital=1 analog=1 card=1 disc=1 replay=identical" --io-demo)
 check_cli(2 "Usage:" --io-demo extra)
+check_cli(0 "ticks=194 sprite-pixels=12 samples=194 pcm-signature=15153771150353129381 concurrent=1 input=1 replay=identical" --integrated-demo)
+check_cli(2 "Usage:" --integrated-demo extra)
 check_cli(0 "retired=25 pc=36 r2=15 r3=5 r4=15 r5=143 ram.256.=15 budget-exhausted" --demo)
 check_cli(0 "retired=0 pc=0" --demo --steps 0)
 check_cli(0 "pc=0x00000014 opcode=0x24630001 delay-slot retired" --demo --trace)

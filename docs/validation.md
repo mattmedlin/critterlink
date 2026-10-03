@@ -235,3 +235,28 @@ macOS x86-64 built with strict warnings and passed all twenty-four suites.
 Windows exposed implicit integer-to-byte conversions in `fill` calls in the
 device and its test; explicit byte constants fixed both without changing
 behavior or compiler settings. The affected sanitizer suite passed again.
+
+## Combined audiovisual/input restoration (#15) local validation
+
+On October 2, 2026 (America/New_York), native Apple Silicon Debug, Release and
+address/undefined-behavior sanitizer builds passed all twenty-five suites.
+`--integrated-demo` reports `ticks=194 sprite-pixels=12 samples=194
+pcm-signature=15153771150353129381 concurrent=1 input=1 replay=identical`.
+
+At tick95 the same snapshot contains one GIF qword remaining and a pending first
+vertex, SPU2 sample7 with retained decoder/envelope state, SIO2 response byte3,
+and an unconsumed controller event at tick96. Guest code drives every device.
+The expected framebuffer, literal PCM sequence and controller replies were
+specified independently and checked in a separate implementation review.
+
+Continuation after restore matches full state, every subsequent stereo sample,
+framebuffer, controller FIFO/read cursor, EE instruction trace and per-step IOP
+PC/register/branch/load-delay observations. Partitioned budgets agree. A changed
+future event affects the later guest-consumed button result while preserving the
+current packet latch; an invalid response snapshot leaves live state unchanged.
+All prior scheduler, timer/interrupt, DMA, vector, SIF, storage and audio tests pass.
+
+[The integrated fixture](integrated.md) specifies the timing and output oracle.
+[Subsystem status](subsystem-status.md) records each implementation boundary.
+The result is headless guest-driven diagnostic integration, not BIOS/game
+compatibility, complete PS2 fidelity or host audio/display/controller support.

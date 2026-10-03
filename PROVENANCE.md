@@ -57,6 +57,11 @@ The guest programs, raw card image and sector bytes are original synthetic
 fixtures; no card dump, disc image, firmware or emulator implementation was
 imported. Host input remains a deterministic recorded sequence.
 
+The combined audiovisual/input fixture is an original coordinated EE/IOP program
+using the already documented GIF, SPU2 and SIO2 subsets. Its sprite, sample block,
+controller events and expected output sequences are synthetic. No game program,
+media or emulator implementation was imported for the integration tests.
+
 There are no vendored or downloaded C++ dependencies. The core, CLI, and tests
 use the C++ standard library provided by the selected compiler. Its distribution
 and runtime terms depend on the toolchain (MSVC, Apple Clang/libc++, or GCC/libstdc++).

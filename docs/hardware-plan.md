@@ -1,8 +1,10 @@
-# Milestone 4: dependency plan and first delivery
+# Milestone 4: subsystem integration plan
 
 Parent: [#4](https://github.com/mattmedlin/critterlink/issues/4). **The umbrella
 milestone remains open.** A rendered sprite, decoded block, or host controller
-poll does not establish full PS2 hardware integration.
+poll does not establish full PS2 hardware integration. The current
+[subsystem status matrix](subsystem-status.md) records implemented subsets,
+assumptions, missing modes and targeted evidence.
 
 ## Delivery plan
 
@@ -24,13 +26,17 @@ before the umbrella's broader criteria are checked off:
 | [#12](https://github.com/mattmedlin/critterlink/issues/12) | IOP and SIF communication | #8, #10, DMA extensions | Independent IOP scalar CPU and normal SIF DMA/mailbox subset; see [sif.md](sif.md) |
 | [#13](https://github.com/mattmedlin/critterlink/issues/13) | Register-driven SPU2 audio | #12 | Two core-0 voices, manual sound RAM upload, ADPCM/ADSR and integer-pitch PCM; see [spu.md](spu.md) |
 | [#14](https://github.com/mattmedlin/critterlink/issues/14) | SIO2 controllers, memory cards and disc | #12 | Guest digital/analog polling, synthetic raw card transactions, ReadCD/DMA3; see [sio2.md](sio2.md), [cdvd.md](cdvd.md) |
-| [#15](https://github.com/mattmedlin/critterlink/issues/15) | Guest-driven audiovisual/input restoration | #10–#14 | CPU/DMA/timer/graphics replay works; full integration remains open |
+| [#15](https://github.com/mattmedlin/critterlink/issues/15) | Guest-driven audiovisual/input restoration | #10–#14 | Combined guest audiovisual/input fixture: implementation pending verification |
 
 Issues #10/#11 add guest interrupt dispatch and a VIF1/VU1 diagnostic path.
 Issue #12 adds a directly initialized IOP/SIF diagnostic path. Issue #13 connects
 guest IOP halfword accesses to an SPU2 audio diagnostic. Issue #14 adds IOP-side
 controller configuration, card transactions and read-only disc DMA using original
-synthetic media. Next is the combined audiovisual/input restoration fixture (#15).
+synthetic media. The combined audiovisual/input restoration fixture (#15) is
+implementation pending verification. Its acceptance requires simultaneously active
+DMA, audio and input at a snapshot, independently expected outputs after replay,
+and successful execution across the complete platform matrix. The umbrella stays
+open until that evidence is recorded.
 
 ## Host-neutral system and timing contract
 
@@ -93,7 +99,7 @@ error. Instructions cannot be fetched from MMIO.
 | Timer n at `0x10000000 + n*0x800`, COUNT +0, MODE +0x10, COMP +0x20 | Four 16-bit counters, logical bus divisors 1/16/256, enable, zero-on-compare, compare/overflow flags and interrupt enables |
 | INTC_STAT `0x1000f000` | Latched sources, write-one-clear; timers use bits 9–12 |
 | INTC_MASK `0x1000f010` | Write-one-toggle; INT0 reflects enabled pending sources |
-| D_CTRL `0x1000e000` | DMAE bit0; disabling pauses GIF DMA |
+| D_CTRL `0x1000e000` | DMAE bit0; disabling pauses implemented EE DMA endpoints |
 | D_STAT `0x1000e010` | Channels1/2/5/6 completion bits1/2/5/6 and masks17/18/21/22, bus-error bit15; low flags write-one-clear, high mask write-one-toggle |
 | SIF0/1 channels at `0x1000c000` / `0x1000c400` | Normal EE receive/send endpoints; see [sif.md](sif.md) |
 | D1_CHCR `0x10009000`, MADR +0x10, QWC +0x20 | Normal RAM-to-VIF1 DMA with word-level stall/partial-qword state |
@@ -113,7 +119,9 @@ restarting. This is a diagnostic transfer policy, not FIFO/bus cycle emulation.
 
 Missing: timer gates, HBlank/VBlank clocks, SBUS HOLD, real-time frequencies,
 other DMA channels, chain/interleave modes,
-scratchpad DMA, FIFO stalls, arbitration and cycle-level bus timing.
+scratchpad DMA, hardware-accurate FIFO capacities, arbitration and cycle-level
+bus timing. Implemented VIF stalls and SIF bounded queues are documented diagnostic
+behavior, not measurements of hardware buffering.
 
 Two timer details are explicitly **implementation policies awaiting hardware
 validation**: a latched EQUF/OVFF suppresses additional events of the same kind

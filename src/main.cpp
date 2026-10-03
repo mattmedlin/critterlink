@@ -8,6 +8,7 @@
 #include "critterlink/iop_demo.hpp"
 #include "critterlink/spu_demo.hpp"
 #include "critterlink/io_demo.hpp"
+#include "critterlink/integrated_demo.hpp"
 
 #include <charconv>
 #include <iostream>
@@ -163,9 +164,25 @@ int main(int argc, char** argv) {
                                               "       critterlink --iop-demo\n"
                                               "       critterlink --spu-demo\n"
                                               "       critterlink --io-demo\n"
+                                              "       critterlink --integrated-demo\n"
                                               "       critterlink --elf FILE [--steps N] [--trace] [--inspect ADDRESS]...\n"
                                               "       critterlink --help\n";
     critterlink::Tick ticks = 0;
+    if (argc == 2 && std::string_view(argv[1]) == "--integrated-demo") {
+        try {
+            const auto result = critterlink::run_integrated_demo();
+            std::cout << "Integrated diagnostic: ticks=" << result.ticks
+                      << " sprite-pixels=" << result.sprite_pixels << " samples=" << result.samples
+                      << " pcm-signature=" << result.pcm_signature
+                      << " concurrent=" << result.concurrent_checkpoint << " input=" << result.input
+                      << " replay=" << (result.replay_identical ? "identical" : "MISMATCH") << '\n';
+            return result.concurrent_checkpoint && result.graphics && result.audio && result.input &&
+                   result.replay_identical ? 0 : 1;
+        } catch (const std::exception& error) {
+            std::cerr << "Integrated diagnostic failed: " << error.what() << '\n';
+            return 1;
+        }
+    }
     if (argc == 2 && std::string_view(argv[1]) == "--io-demo") {
         try {
             const auto result = critterlink::run_io_demo();
