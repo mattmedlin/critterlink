@@ -164,3 +164,8 @@ tick223. `--iop-demo` reports completed exchange and identical replay.
 The [IOP](iop.md) and [SIF](sif.md) profiles document strict subsets and timing
 policies. These tests do not establish BIOS boot, SIFRPC, IOP interrupt dispatch,
 SPU2/SIO2 functionality, or silicon-conformant timing/IRQ behavior.
+
+Remote verification passed for `5bfeefe` in
+[GitHub Actions run 37085175296](https://github.com/mattmedlin/critterlink/actions/runs/37085175296):
+all eight Debug/Release jobs on Windows x86-64, Linux x86-64, macOS ARM64 and
+macOS x86-64 built with strict warnings and passed all nineteen suites.
