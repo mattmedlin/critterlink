@@ -409,3 +409,29 @@ variable lane shifts are still unimplemented. #17 and #4 remain open.
 [GitHub Actions run 37160428822](https://github.com/mattmedlin/critterlink/actions/runs/37160428822)
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `13bf674`. Existing integrated diagnostic and CLI expectations remain unchanged.
+
+## Packed arithmetic, saturation and comparisons (#17)
+
+On October 3, 2026, all 37 suites passed local Apple Silicon Debug, Release and
+ASan/UBSan (114.62, 8.15 and 239.62 seconds respectively). The new
+`cpu_packed_arithmetic` suite exercises all 65,536 byte-input pairs for each of
+eight operation types, mixed halfword/word boundary vectors, literal word results,
+signed saturation endpoints, lane isolation, r0 and aliases, unrelated CPU state,
+branch delay/annul behavior and unsupported neighboring encodings.
+
+An original LQ/arithmetic/comparison/SQ guest fixture stores independently
+specified saturated sums and comparison masks. Full System state and traces
+match after restoring a snapshot taken between the arithmetic and comparisons.
+All existing integrated diagnostic and CLI expectations also passed unchanged.
+
+This adds 24 instructions across wrapping add/subtract, signed/unsigned
+saturating add/subtract, equality and signed greater-than at B/H/W widths.
+Signed saturation follows the manual's stated endpoint semantics; documented
+pseudocode/prose inconsistencies are recorded in [CPU coverage](cpu-coverage.md).
+These tests do not establish pipeline timing or physical-hardware conformance.
+Min/max, absolute value, mixed arithmetic, permutations, packed multiply/divide
+and other MMI operations remain incomplete; #17 and #4 remain open.
+
+[GitHub Actions run 37161838307](https://github.com/mattmedlin/critterlink/actions/runs/37161838307)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`84b2fe2` without a platform-specific repair.
