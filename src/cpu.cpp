@@ -31,17 +31,23 @@ std::optional<Register128> packed_arithmetic(unsigned function, unsigned sub,
                                             Register128 left, Register128 right) {
     if (function != 8 && function != 40) return {};
     enum class Operation { add, subtract, greater, equal, signed_add, signed_subtract,
-                           unsigned_add, unsigned_subtract };
+                           unsigned_add, unsigned_subtract, minimum, maximum, absolute, mixed };
     Operation operation;
     switch (sub) {
-    case 0: case 4: case 8:
+    case 4:
+        operation = function == 8 ? Operation::add : Operation::mixed; break;
+    case 0: case 8:
         if (function != 8) return {};
         operation = Operation::add; break;
-    case 1: case 5: case 9:
+    case 1: case 5:
+        operation = function == 8 ? Operation::subtract : Operation::absolute; break;
+    case 9:
         if (function != 8) return {};
         operation = Operation::subtract; break;
     case 2: case 6: case 10:
         operation = function == 8 ? Operation::greater : Operation::equal; break;
+    case 3: case 7:
+        operation = function == 8 ? Operation::maximum : Operation::minimum; break;
     case 16: case 20: case 24:
         operation = function == 8 ? Operation::signed_add : Operation::unsigned_add; break;
     case 17: case 21: case 25:
@@ -55,7 +61,7 @@ std::optional<Register128> packed_arithmetic(unsigned function, unsigned sub,
         return static_cast<std::int64_t>(value) -
                ((value & sign) != 0 ? static_cast<std::int64_t>(span) : 0);
     };
-    const auto apply = [&](std::uint64_t x, std::uint64_t y) {
+    const auto apply = [&](std::uint64_t x, std::uint64_t y, bool upper) {
         std::uint64_t output = 0;
         for (unsigned offset = 0; offset < 64; offset += width) {
             const auto a = (x >> offset) & mask, b = (y >> offset) & mask;
@@ -65,6 +71,12 @@ std::optional<Register128> packed_arithmetic(unsigned function, unsigned sub,
             case Operation::subtract: result = a - b; break;
             case Operation::greater: result = (a ^ sign) > (b ^ sign) ? mask : 0; break;
             case Operation::equal: result = a == b ? mask : 0; break;
+            case Operation::minimum: result = (a ^ sign) < (b ^ sign) ? a : b; break;
+            case Operation::maximum: result = (a ^ sign) > (b ^ sign) ? a : b; break;
+            case Operation::absolute:
+                result = b == sign ? sign - 1U : (b & sign) != 0 ? span - b : b;
+                break;
+            case Operation::mixed: result = upper ? a + b : a - b; break;
             case Operation::unsigned_add: result = a + b > mask ? mask : a + b; break;
             case Operation::unsigned_subtract: result = a < b ? 0 : a - b; break;
             case Operation::signed_add: case Operation::signed_subtract: {
@@ -83,7 +95,66 @@ std::optional<Register128> packed_arithmetic(unsigned function, unsigned sub,
         }
         return output;
     };
-    return Register128{apply(left.low, right.low), apply(left.high, right.high)};
+    return Register128{apply(left.low, right.low, false), apply(left.high, right.high, true)};
+}
+
+std::optional<Register128> packed_permutation(unsigned function, unsigned sub,
+                                             Register128 left, Register128 right) {
+    const auto lane = [](Register128 value, unsigned index, unsigned width) {
+        return ((index * width < 64 ? value.low : value.high) >> ((index * width) % 64U)) &
+               ((std::uint64_t{1} << width) - 1U);
+    };
+    Register128 result;
+    const auto put = [&](unsigned index, unsigned width, std::uint64_t value) {
+        (index * width < 64 ? result.low : result.high) |= value << ((index * width) % 64U);
+    };
+    if ((function == 8 || function == 40) && (sub == 18 || sub == 22 || sub == 26)) {
+        // PEXTL/PEXTU interleave rt,rs lanes from the selected 64-bit halves.
+        const unsigned width = 32U >> ((sub >> 2U) & 3U);
+        const unsigned base = function == 40 ? 64U / width : 0U;
+        for (unsigned n = 0; n < 64U / width; ++n) {
+            put(2 * n, width, lane(right, base + n, width));
+            put(2 * n + 1, width, lane(left, base + n, width));
+        }
+    } else if (function == 8 && (sub == 19 || sub == 23 || sub == 27)) {
+        // PPAC selects even lanes of rt into the low half, then rs into the high half.
+        const unsigned width = 32U >> ((sub >> 2U) & 3U);
+        for (unsigned n = 0; n < 64U / width; ++n) {
+            put(n, width, lane(right, 2 * n, width));
+            put(n + 64U / width, width, lane(left, 2 * n, width));
+        }
+    } else if ((function == 9 || function == 41) && sub == 14) {
+        // PCPYUD has the opposite source order to PCPYLD.
+        result = function == 9 ? Register128{right.low, left.low} : Register128{left.high, right.high};
+    } else if ((function == 9 || function == 41) && sub == 10) {
+        for (unsigned n = 0; n < 4; ++n) {
+            put(2 * n, 16, lane(right, function == 9 ? n : 2 * n, 16));
+            put(2 * n + 1, 16, lane(left, function == 9 ? n + 4 : 2 * n, 16));
+        }
+    } else if (function == 8 && (sub == 30 || sub == 31)) {
+        // PEXT5 / PPAC5 act on four words, not a densely packed 64-bit result.
+        for (unsigned n = 0; n < 4; ++n) {
+            const auto word = lane(right, n, 32);
+            const auto value = sub == 30 ?
+                ((word & 31U) << 3U) | ((word & 0x3e0U) << 6U) |
+                ((word & 0x7c00U) << 9U) | ((word & 0x8000U) << 16U) :
+                ((word >> 3U) & 31U) | ((word >> 6U) & 0x3e0U) |
+                ((word >> 9U) & 0x7c00U) | ((word >> 16U) & 0x8000U);
+            put(n, 32, value);
+        }
+    } else if ((function == 9 || function == 41) && (sub == 26 || sub == 27)) {
+        const std::array<unsigned, 4> order = sub == 26 ?
+            (function == 9 ? std::array{2U, 1U, 0U, 3U} : std::array{0U, 2U, 1U, 3U}) :
+            (function == 9 ? std::array{3U, 2U, 1U, 0U} : std::array{0U, 0U, 0U, 0U});
+        for (unsigned n = 0; n < 8; ++n) put(n, 16, lane(right, (n / 4U) * 4U + order[n % 4U], 16));
+    } else if ((function == 9 || function == 41) && sub == 30) {
+        const auto order = function == 9 ? std::array{2U, 1U, 0U, 3U} : std::array{0U, 2U, 1U, 3U};
+        for (unsigned n = 0; n < 4; ++n) put(n, 32, lane(right, order[n], 32));
+    } else if (function == 9 && sub == 31) {
+        constexpr std::array order{1U, 2U, 0U, 3U};
+        for (unsigned n = 0; n < 4; ++n) put(n, 32, lane(right, order[n], 32));
+    } else return {};
+    return result;
 }
 } // namespace
 
@@ -464,7 +535,15 @@ InstructionTrace Cpu::step(Memory& memory) {
             else { return unsupported(); }
             break;
         case 28:
+            if (rs != 0 && ((function == 40 && (shift == 1 || shift == 5)) ||
+                (function == 8 && (shift == 30 || shift == 31)) ||
+                ((function == 9 || function == 41) && (shift == 26 || shift == 27 || shift == 30)) ||
+                (function == 9 && shift == 31))) return unsupported();
             if (const auto result = packed_arithmetic(function, shift, state_.gpr[rs], state_.gpr[rt])) {
+                if (rd != 0) next.gpr[rd] = *result;
+                break;
+            }
+            if (const auto result = packed_permutation(function, shift, state_.gpr[rs], state_.gpr[rt])) {
                 if (rd != 0) next.gpr[rd] = *result;
                 break;
             }

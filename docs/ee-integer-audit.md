@@ -1,6 +1,6 @@
 # EE integer execution audit — issue #16
 
-Audit date: 2026-10-03, updated through packed add/subtract, saturation and comparisons.
+Audit date: 2026-10-03, updated through packed selection and rearrangement.
 This compares the decoder in `src/cpu.cpp` with Sony's EE instruction inventory.
 It is a source review, not a new conformance run. **#16 remains open.**
 
@@ -28,6 +28,8 @@ pipeline behavior. Detailed test contracts are in [cpu-coverage.md](cpu-coverage
 | Traps | TEQ, TEQI, TNE, TNEI, TGE, TGEI, TGEU, TGEIU, TLT, TLTI, TLTU, TLTIU |
 | SA transfers/counts | MFSA, MTSA, MTSAB, MTSAH |
 | Packed add/subtract | PADDB/H/W, PSUBB/H/W, PADDSB/H/W, PSUBSB/H/W, PADDUB/H/W, PSUBUB/H/W |
+| Packed selection/mixed | PMINH/W, PMAXH/W, PABSH/W, PADSBH |
+| Packed rearrangement | PEXTLB/H/W, PEXTUB/H/W, PPACB/H/W, PCPYH/LD/UD, PINTH, PINTEH, PEXEH/CH/EW/CW, PREVH, PROT3W, PEXT5, PPAC5 |
 | Packed comparisons | PCEQB/H/W, PCGTB/H/W |
 | Packed logical | PAND, POR, PXOR, PNOR |
 | Packed immediate shifts | PSLLH, PSRLH, PSRAH, PSLLW, PSRLW, PSRAW |
@@ -45,7 +47,8 @@ PREF and SYNC now have a tested functional contract in the synchronous
 interpreter (see CPU coverage). MFSA, MTSA, MTSAB, MTSAH and PLZCW now have
 functional implementations too. QFSRV, packed logical operations and immediate
 lane shifts, wrapping/saturating add/subtract and equality/signed greater-than
-comparisons are implemented; remaining MMI operations are still missing under
+comparisons, selection/mixed arithmetic and rearrangement are implemented;
+remaining MMI operations are still missing under
 #17. SA encoding and pipeline spacing remain abstractions,
 not hardware-verified behavior.
 See Sony's [instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf),
@@ -89,7 +92,7 @@ barrier is reached. Adding those requires extending the completion contract. See
 | Work | Tracking / evidence needed |
 | --- | --- |
 | Extend PREF/SYNC with cache/pipeline model | #17/#27: cache behavior, write-buffer flushing, pending operation completion and hardware timing; current functional contract is tested |
-| Packed execution and SA hardware behavior | #17/#27: remaining MMI min/max/absolute/mixed arithmetic, permutation and multiply/divide, physical SA encoding and pipeline spacing; implemented arithmetic/logical/shift tests do not complete packed acceptance |
+| Packed execution and SA hardware behavior | #17/#27: remaining MMI HI/LO/multiply/divide and variable shifts, physical SA encoding and pipeline spacing; implemented arithmetic/logical/shift tests do not complete packed acceptance |
 | Extend memory targets | #18: scratchpad, ROM/reset, virtual translation and privilege; test boundaries, aliases and fault precision |
 | Device memory transactions | #16 with #20: byte-enable and quadword bus API, full/empty FIFO behavior, no read-modify-write side effects, atomic rejection |
 | Full exception semantics | #17/#18: architectural unsupported-instruction and translation dispatch after the required state exists |

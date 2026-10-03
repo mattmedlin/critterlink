@@ -63,6 +63,8 @@ limitation, not a fabricated architectural Reserved Instruction exception.
 | Quadword transfers | LQ, SQ | Transfer both 64-bit lanes in RAM; SQ also writes GIF FIFO with backpressure; mask low four address bits before translation |
 | SA transfers/counts | MFSA, MTSA, MTSAB, MTSAH | Full saved-token round trips; byte/halfword shift counts; see representation and timing limits below |
 | Packed add/subtract | PADD/PSUB B/H/W, PADDS/PSUBS B/H/W, PADDU/PSUBU B/H/W | Independent wrapping, signed saturation, or unsigned saturation in every lane |
+| Packed selection/mixed arithmetic | PMINH/W, PMAXH/W, PABSH/W, PADSBH | Signed selection, saturated absolute value, low-half subtract/high-half add |
+| Packed rearrangement | PEXTL/U B/H/W, PPAC B/H/W, PCPYH/LD/UD, PINTH, PINTEH, PEXEH/CH/EW/CW, PREVH, PROT3W, PEXT5, PPAC5 | Explicit lane routing and 1-5-5-5 color conversions |
 | Packed comparisons | PCEQ B/H/W, PCGT B/H/W | Equality and signed greater-than; all-one/zero lane masks |
 | Packed logical | PAND, POR, PXOR, PNOR | Full 128-bit Boolean results; both destination lanes replaced |
 | Packed immediate shifts | PSLLH, PSRLH, PSRAH, PSLLW, PSRLW, PSRAW | Independent 16/32-bit lanes; see halfword count restrictions below |
@@ -328,8 +330,8 @@ branch slots and original guest RAM output. The guest saves/restores SA using
 proper instruction spacing and replays from a snapshot while a different count
 is active. Primary reference: Sony's [EE instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf),
 printed pages 176, 252–253, 261, 263–264, 266–267, 269 and 285–286.
-Packed permutation, multiply/divide, variable lane shifts and remaining MMI
-operations are still missing. Arithmetic/comparison additions follow below.
+Packed multiply/divide, variable lane shifts and remaining MMI operations are
+still missing. Arithmetic/comparison and rearrangement additions follow below.
 
 ## Packed add/subtract, saturation and comparisons (#17)
 
@@ -357,5 +359,34 @@ signed range and saturation definition: PADDSW's printed underflow interval has
 an impossible upper bound, and PSUBSH's prose says truncation despite its
 saturation title and endpoint-selecting operation. Tests explicitly cover both
 saturation endpoints. These are manual-based functional expectations, not new
-physical-hardware measurements. Min/max, absolute value, mixed add/subtract and
-remaining MMI operations are not enabled by this batch.
+physical-hardware measurements. Later selection and rearrangement coverage is
+described below.
+
+## Packed selection and rearrangement (#17)
+
+PMIN/PMAX select signed halfword/word values. PABS saturates the most-negative
+lane to the largest positive value. PADSBH subtracts in the low four halfwords
+and adds in the high four, with lane-local wrap. All results replace both register
+halves and preserve unrelated CPU state.
+
+The rearrangement family implements lower/upper interleaving, even-lane packing,
+copying, halfword interleaving, center/even exchanges, halfword reversal within
+each doubleword and three-word rotation. PCPYUD's source order differs from
+PCPYLD. PEXT5/PPAC5 convert 1-5-5-5 and 8-8-8-8 fields separately in each word;
+packing clears that word's upper half rather than densely packing the register.
+Unary forms reject nonzero reserved rs bits before any mutation.
+
+`cpu_packed_permute` checks every source bit against explicit byte-route tables,
+all 65,536 packed color inputs, discarded color bits, signed boundary vectors,
+literal PADSBH output, aliases/r0, reserved fields, delay/annul behavior and replay.
+A guest loads two quadwords, interleaves their halves and packs them back to an
+independently expected RAM result, with full-System restoration mid-sequence.
+
+Primary reference: Sony's [EE instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf),
+printed pages 158–159, 175, 189–191, 198–208, 213–214, 222–225, 235–238 and
+254–260. PEXTLH's final destination range has a printed width typo; its earlier
+lanes and diagram define a full interleaved 32-bit pair. PEXEW follows its explicit
+operation/diagram. Published [PS2 hardware results](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/ee_simd/arithmetic.expected)
+corroborate the PABSH/PABSW minimum-value clamp. No external emulator code was
+imported; these are project-authored tests, not a new physical-hardware run.
+Packed HI/LO/multiply/divide, variable shifts and other architectural work remain.

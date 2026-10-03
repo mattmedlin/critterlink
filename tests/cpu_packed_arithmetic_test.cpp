@@ -145,7 +145,7 @@ void guest_and_delay_replay() {
         }
     }
     // Unimplemented neighboring MMI operations must not fall through as arithmetic.
-    for (const auto s: {Spec{8,3,32,Kind::add},Spec{8,18,32,Kind::add},Spec{40,1,32,Kind::add},Spec{40,26,8,Kind::add}}) {
+    for (const auto s: {Spec{8,11,8,Kind::add},Spec{8,12,32,Kind::add},Spec{40,0,32,Kind::add},Spec{40,8,8,Kind::add}}) {
         memory.write(0,4,opcode(s)); system.cpu().reset();
         check(system.cpu().step(memory).stop.has_value(),"unimplemented MMI neighbor accepted");
     }
