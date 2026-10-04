@@ -670,3 +670,27 @@ and arithmetic execution. #17 and #4 remain open.
 [GitHub Actions run 37224291381](https://github.com/mattmedlin/critterlink/actions/runs/37224291381)
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `2638b4a`. No platform-specific repairs were needed.
+
+## EE floating-point comparisons
+
+On October 4, 2026, all 46 local Apple Silicon suites passed Debug, Release and
+ASan/UBSan (147.82, 10.65 and 305.12 seconds respectively) for `93b8f5f`.
+C.F.S/C.EQ.S/C.LT.S/C.LE.S now update only FCR31.C using integer bit ordering:
+exponent-zero inputs compare as zero, both zero signs are equal, and exponent
+255 remains finite. No host IEEE NaN/denormal behavior is imported.
+
+The new `cpu_fpu_compare` suite checks independently ordered boundary groups,
+all register pairs, both initial C values, preservation of every other flag and
+register, CU1 exceptions, delay/annul behavior, reserved encodings and replay.
+An original compare/branch guest writes literal expected flags and slot-count
+results to RAM; a snapshot continuation reproduces traces and full System state.
+Existing integrated and CLI checks passed. The primary format/comparison manuals
+and pinned hardware outputs are linked in [FPU coverage](fpu.md). These are
+reference-based regressions, not new physical-hardware measurements.
+
+Arithmetic, conversions, accumulator operations and pipeline timing remain work,
+alongside other architectural and hardware gaps. #17 and #4 remain open.
+
+[GitHub Actions run 37225163553](https://github.com/mattmedlin/critterlink/actions/runs/37225163553)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`93b8f5f`. No platform-specific repairs were needed.
