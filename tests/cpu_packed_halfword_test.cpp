@@ -129,7 +129,8 @@ void divide() {
             const auto quotient=q[n]<0x80000000U?static_cast<std::int64_t>(q[n]):static_cast<std::int64_t>(q[n])-0x100000000LL;
             const auto remainder=r[n]<0x80000000U?static_cast<std::int64_t>(r[n]):static_cast<std::int64_t>(r[n])-0x100000000LL;
             if(n==0 && divisor==-1) { check(q[n]==0x80000000U && r[n]==0,"broadcast overflow");continue; }
-            const auto magnitude=remainder<0?-remainder:remainder,limit=divisor<0?-divisor:divisor;
+            const auto magnitude=remainder<0?-remainder:remainder;
+            const auto limit=divisor<0?-divisor:divisor;
             check(quotient*divisor+remainder==dividends[n] && magnitude<limit &&
                 (remainder==0 || (remainder<0)==(dividends[n]<0)),"division identity/sign/range");
         }
