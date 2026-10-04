@@ -11,8 +11,8 @@ boot a BIOS or run games. Passing these tests does not establish PS2 compatibili
 SA, a 32-bit PC, pending next PC, explicit delay-slot context, explicit COP0
 registers, and a sticky stop record. Scalar instructions preserve the upper
 GPR lane; r0 is always zero, including after debugger state import. HI/LO support
-the two integer multiply/divide pipelines. SA uses a 64-bit functional representation
-for complete MFSA/MTSA save tokens.
+the two integer multiply/divide pipelines. SA uses an internal bit count; guest MFSA/MTSA expose a four-bit byte count
+corroborated by published PS2 hardware tests.
 
 `Cpu::reset(entry)` initializes a synthetic program entry (default zero); it is
 not a hardware reset. It does not clear the separately owned `Memory` object.
@@ -189,11 +189,11 @@ are sign-extended words, including unsigned operations. Moves transfer the entir
 selected 64-bit lane. These operations commit immediately; pipeline latency and
 interlock timing remain part of #27.
 
-Manual-undefined noncanonical word operands and division by zero stop explicitly
-without changing registers or fabricating a CPU exception. Signed INT_MIN/-1
+Manual-undefined noncanonical word operands stop explicitly without changing
+registers or fabricating a CPU exception. Zero-divisor results now follow published
+PS2 hardware evidence, as documented below. Signed INT_MIN/-1
 now produces sign-extended quotient 0x80000000 and remainder zero, as specified
-by the manual; the [MMI audit](ee-mmi-audit.md) records the correction. Zero-divisor
-stops remain a compatibility limitation. Arithmetic
+by the manual; the [MMI audit](ee-mmi-audit.md) records the correction. Noncanonical operands remain a compatibility limitation. Arithmetic
 is implemented without host signed overflow. Tests cover both pipelines, signed
 and unsigned products/quotients/remainders, accumulator carry/wrap, lane isolation,
 r0 destinations, invalid encodings and restored mixed-pipeline execution.
@@ -286,17 +286,23 @@ printed pages 96 and 121.
 
 ## SA registers and PLZCW (#17)
 
-MTSAB XORs the low four source/immediate bits and scales by eight; MTSAH uses
-three bits and scales by sixteen. Neither is a REGIMM branch. MFSA/MTSA transfer
-the full saved representation through the low GPR lane, preserving the upper
-lane. SA is included in CPU/System snapshots and cleared by CPU reset.
+MTSAB XORs the low four source/immediate bits; MTSAH XORs three bits and
+doubles the result. These produce the guest-visible byte count. Neither is a
+REGIMM branch. MFSA returns that count (0–15) through the low GPR lane and
+preserves its upper lane. MTSA consumes only the low four source bits.
 
-The interpreter represents generated SA values as bit counts. Hardware's MFSA
-encoding is opaque; these numeric tokens are an emulator convention, not a
-verified hardware encoding. Guest code must save and restore them unchanged.
-Arbitrary MTSA values are preserved. QFSRV accepts only canonical emulator tokens
-(multiples of eight from 0 through 120); other tokens stop before destination
-writes. This validates representation, not the provenance of a token.
+Internally, SA remains a bit count (guest byte count multiplied by eight) for
+QFSRV and existing in-memory snapshots. It is included in CPU/System snapshots
+and cleared by CPU reset. QFSRV rejects noncanonical debugger-imported internal
+values (anything other than a multiple of eight from 0 through 120). Guest
+MTSA/MTSAB/MTSAH always produce canonical internal values. Internal snapshot
+values are not guest save tokens; no persistent save-file format exists yet.
+
+Published PS2 tests show MTSA 16 reading back as zero, 0xffff as 15, and MTSA 1
+rotating a repeated QFSRV source by one byte. These observations correct the
+former emulator-only bit-count token exposed by MFSA. The manual still requires
+saving/restoring tokens unchanged; accepting arbitrary low-nibble MTSA inputs
+follows the observed hardware behavior rather than expanding that software contract.
 
 SA writes complete immediately here. Hardware's three-instruction spacing rules
 before MTSA and after SA reads before MTSAB/MTSAH are not enforced or timed.
@@ -310,7 +316,7 @@ bits 127..64 and handles source/destination aliasing and r0 normally. Tests cove
 every transition position, fixed mixed-word answers, reserved fields and replay.
 
 `cpu_sa` also checks all low input combinations, ignored high bits, zero-register
-operands, complete 64-bit snapshot tokens, reserved encodings, delay/annul behavior
+operands, all 16 byte tokens, high source-bit masking, reserved encodings, delay/annul behavior
 and a RAM save/restore sequence. Primary reference: Sony's
 [EE instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf), printed pages
 148, 151–153 and 215. MFSA/MTSA are save/restore operations; treating their values
@@ -323,7 +329,7 @@ rt, shifts by the SA count and keeps the low 128 bits. Zero selects rt; equal
 sources rotate a quadword. The implementation handles zero and 64-bit boundaries
 without undefined host shifts, captures sources before writing aliased destinations,
 and preserves r0 and unrelated state. Saved/restored canonical SA tokens work;
-physical encoding and pipeline spacing remain the limitations described above.
+pipeline spacing remains the limitation described above.
 
 PSLLH/PSRLH/PSRAH process eight independent halfwords; the W forms process four
 words. Arithmetic right shifts fill each lane with its own sign. Word counts use
@@ -412,7 +418,7 @@ updates both HI/LO halves.
 
 The manual requires canonical sign-extended 32-bit operands in each source
 half, including unsigned multiplication/division. Noncanonical operands stop.
-Zero divisors stop under the existing scalar divide policy. Signed minimum/-1
+Zero divisors produce hardware-derived results as documented below. Signed minimum/-1
 division returns sign-extended quotient 0x80000000 and remainder zero, without
 a guest exception. Both lanes
 commit atomically, so an unsupported second lane leaves the first unchanged.
@@ -491,7 +497,7 @@ hardware results agree on sign extension. Minimum signed word divided by -1
 returns 0x80000000 and remainder zero as specified in the programming notes.
 For zero divisors, published results support quotient -1 for nonnegative inputs
 or +1 for negative inputs and the original dividend as remainder; this behavior
-is implemented here. Scalar/packed-word zero-divisor restrictions remain. No guest exception is raised for these PDIVBW edge cases.
+is implemented here. Scalar/packed-word zero-divisor handling is now implemented too. No guest exception is raised for these PDIVBW edge cases.
 
 `cpu_packed_halfword` checks mixed signed boundary products, wraparound, all
 65,535 nonzero divisor encodings through quotient/remainder identities, literal
@@ -507,7 +513,7 @@ printed pages 192–193, 209–212, 216–217, 239–240 and 246–247;
 and their [input definitions](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/ee_simd/shared.h).
 No external emulator implementation was imported; this is not a new physical
 hardware run. The [MMI inventory audit](ee-mmi-audit.md) confirms all named opcode-0x1c
-entries have decoder paths, with conformance gaps still explicit. Asynchronous timing/interlocks, SA hardware encoding, FPU/control and
+entries have decoder paths, with conformance gaps still explicit. Asynchronous timing/interlocks, SA pipeline spacing, FPU/control and
 broader system work remain. #17 and #4 stay open.
 
 
@@ -524,5 +530,33 @@ quotient 0x80000000, remainder zero, with word sign extension and no guest
 exception. The correction uses existing signed 64-bit intermediates without
 host overflow. Scalar pipeline isolation, either/both packed lanes, preserved
 state, delay/annul behavior, guest RAM output and full-System replay are tested.
-Zero divisors and noncanonical word operands remain explicit stops in these
-paths. #17 and #4 remain open.
+Noncanonical word operands remain explicit stops in these paths; zero-divisor
+results are now implemented as described below. #17 and #4 remain open.
+
+
+## Zero-divisor and guest SA compatibility (#17)
+
+DIV/DIV1/PDIVW with a zero divisor return quotient -1 for nonnegative dividends
+and +1 for negative dividends. DIVU/DIVU1/PDIVUW return all-one quotient words.
+All retain the dividend word as remainder, with normal sign extension into the
+corresponding 64-bit HI/LO halves. Packed lanes act independently. No guest
+exception occurs. Noncanonical word operands still stop atomically, including a
+bad second packed lane when the first lane has a zero divisor.
+
+`cpu_divide_zero` checks fixed zero/positive/negative/minimum-word vectors in
+all six forms, each/both packed lanes, untouched scalar pipelines, complete CPU
+state, r0 sources, delay/annul behavior, noncanonical rejection and full-System
+replay with independent guest RAM results. `cpu_sa` now verifies all 16 guest
+byte tokens, MTSA masking of every source bit, generated byte/halfword tokens,
+the published one-byte QFSRV rotation and RAM save/restore. Existing funnel
+count/routing tests retain the internal bit-count representation.
+
+Primary hardware evidence is pinned to ps2autotests revision
+97469ffbed8631277b94e28d01dabd702aa97ef3:
+[scalar divide outputs](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/ee/muldiv.expected),
+[packed divide outputs](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/ee_simd/muldiv.expected),
+[SA outputs](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/ee_simd/funnel.expected)
+and [SA test definitions](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/ee_simd/funnel.cpp).
+No external emulator implementation was imported; these are regressions against
+published results, not new physical-hardware measurements. Pipeline timing,
+noncanonical word operands, broader conformance and FPU/control remain work.

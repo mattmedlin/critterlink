@@ -130,8 +130,6 @@ void invalid() {
             auto before=initial(); (lane==0?before.gpr[source].low:before.gpr[source].high)=0x00000000ffffffffULL;
             reject(memory,cpu,mmi(fn,sub,1,2,sub==13?0:3),before);
         }
-        auto before=initial(); (lane==0?before.gpr[2].low:before.gpr[2].high)=0;
-        reject(memory,cpu,mmi(fn,13,1,2,0),before);
         for(unsigned rd:{1U,2U,4U,8U,16U}) reject(memory,cpu,mmi(fn,13,1,2,rd),initial());
     }
     reject(memory,cpu,mmi(41,2),initial());

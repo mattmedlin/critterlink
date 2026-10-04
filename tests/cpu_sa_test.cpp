@@ -34,24 +34,45 @@ void counts_and_moves() {
         check(cpu.step(memory).retired && cpu.state().sa == (halfword ? 112U : 120U) &&
               !cpu.state().delay_slot && cpu.state().gpr[31] == Register128{}, "SA r0/immediate mismatch");
     }
-    // Debugger-imported tokens test that the save/restore path never truncates.
-    // Physical hardware's opaque SA encoding is not asserted by these values.
-    for (auto token : {0ULL, 120ULL, 0x80000000ULL, 0x123456789abcdef0ULL, ~0ULL}) {
+    // All four-bit guest tokens round-trip through the internal bit count.
+    for (std::uint64_t token=0; token<16; ++token) {
         memory.write(0, 4, mfsa(2)); memory.write(4, 4, 0); memory.write(8, 4, 0);
         memory.write(12, 4, 0); memory.write(16, 4, mtsa(2));
-        CpuState initial; initial.sa = token; initial.gpr[2] = {1, 0xabcdef}; cpu.restore(initial);
+        CpuState initial; initial.sa = token * 8; initial.gpr[2] = {1, 0xabcdef}; cpu.restore(initial);
         check(cpu.step(memory).retired && cpu.state().gpr[2] == Register128{token, 0xabcdef},
-              "MFSA lost token bits or changed upper lane");
+              "MFSA byte token or upper lane mismatch");
         auto edited = cpu.state(); edited.sa = 0; cpu.restore(edited);
-        check(cpu.run(memory, 4) == RunResult{4, true} && cpu.state().sa == token,
-              "MTSA did not restore complete token");
+        check(cpu.run(memory, 4) == RunResult{4, true} && cpu.state().sa == token * 8,
+              "MTSA byte token restore mismatch");
         memory.write(0, 4, mfsa(0)); cpu.restore(initial);
-        check(cpu.step(memory).retired && cpu.state().gpr[0] == Register128{} && cpu.state().sa == token,
+        check(cpu.step(memory).retired && cpu.state().gpr[0] == Register128{} && cpu.state().sa == token * 8,
               "MFSA r0 changed state");
     }
     memory.write(0, 4, mtsa(0)); CpuState initial; initial.sa = 120; cpu.restore(initial);
     check(cpu.step(memory).retired && cpu.state().sa == 0, "MTSA r0 did not read zero");
     cpu.reset(); check(cpu.state().sa == 0, "reset retained SA");
+}
+void hardware_tokens() {
+    Memory memory; Cpu cpu;
+    std::vector<std::uint64_t> inputs{0,1,8,16,0xffff,0x123456789abcdef0ULL,~0ULL};
+    for(unsigned bit=0;bit<64;++bit) inputs.push_back(std::uint64_t{1}<<bit);
+    for(auto input:inputs) {
+        memory.write(0,4,mtsa(1));memory.write(4,4,0);memory.write(8,4,0);memory.write(12,4,0);memory.write(16,4,mfsa(2));
+        CpuState before;before.gpr[1]={input,~0ULL};before.gpr[2]={~0ULL,0x1234abcd};cpu.restore(before);
+        auto expected=before;expected.pc=20;expected.next_pc=24;expected.sa=(input&15U)*8U;expected.gpr[2].low=input&15U;
+        check(cpu.run(memory,5)==RunResult{5,true} && cpu.state()==expected,"hardware MTSA/MFSA masking");
+    }
+    for(bool halfword:{false,true}) for(unsigned value=0;value<32;++value) {
+        memory.write(0,4,set_sa(halfword,1,1));memory.write(4,4,mfsa(2));
+        CpuState before;before.gpr[1].low=value;cpu.restore(before);
+        const auto token=((value^1U)&(halfword?7U:15U))*(halfword?2U:1U);
+        check(cpu.run(memory,2)==RunResult{2,true} && cpu.state().gpr[2].low==token,"generated SA hardware token");
+    }
+    // Published funnel test: MTSA 1 rotates this repeated source right by one byte.
+    memory.write(0,4,mtsa(1));memory.write(4,4,0);memory.write(8,4,0);memory.write(12,4,0);
+    memory.write(16,4,(28U<<26U)|(2U<<21U)|(2U<<16U)|(3U<<11U)|(27U<<6U)|40U);
+    CpuState before;before.gpr[1].low=1;before.gpr[2]={0x9abcdef012345678ULL,0xdeadbeef11223344ULL};cpu.restore(before);
+    check(cpu.run(memory,5)==RunResult{5,true} && cpu.state().gpr[3]==Register128{0x449abcdef0123456ULL,0x78deadbeef112233ULL},"published MTSA/QFSRV byte rotation");
 }
 void reserved_encodings() {
     Memory memory; Cpu cpu;
@@ -78,10 +99,10 @@ void delay_slots() {
             check(slot.retired && slot.delay_slot && !slot.stop &&
                   cpu.state().pc == (branch == 0x10000003U ? 16U : 8U) && !cpu.state().delay_slot,
                   "SA instruction treated as nested branch");
-            const auto expected_sa = instruction == mfsa(2) ? 48U : instruction == mtsa(1) ? 120U :
+            const auto expected_sa = instruction == mfsa(2) ? 48U : instruction == mtsa(1) ? 64U :
                 instruction == set_sa(false, 1, 3) ? 88U : 48U;
             check(cpu.state().sa == expected_sa, "delay-slot SA result");
-            if (instruction == mfsa(2)) check(cpu.state().gpr[2].low == 48, "delay-slot MFSA result");
+            if (instruction == mfsa(2)) check(cpu.state().gpr[2].low == 6, "delay-slot MFSA result");
             memory.write(0, 4, 0x54000003); cpu.restore(initial); // Untaken BNEL annuls.
             check(cpu.step(memory).retired && cpu.state().pc == 8 && cpu.state().sa == initial.sa &&
                   cpu.state().gpr == initial.gpr, "annulled SA instruction executed");
@@ -110,7 +131,7 @@ void context_replay() {
 }
 int main() {
     try {
-        counts_and_moves(); reserved_encodings(); delay_slots(); context_replay();
+        counts_and_moves(); hardware_tokens(); reserved_encodings(); delay_slots(); context_replay();
         std::cout << "SA instruction tests passed\n";
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

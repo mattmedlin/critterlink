@@ -95,8 +95,11 @@ int main() {
             }
             for(auto fn: {26U,27U}) {
                 setup(opcode(op,fn,1,2,0),1,0);const auto before=cpu.state();
-                check(cpu.step(memory).stop && cpu.state().hi==before.hi && cpu.state().lo==before.lo,
-                    "divide zero policy failed");
+                check(cpu.step(memory).retired &&
+                    (pipe1?cpu.state().hi.high:cpu.state().hi.low)==1 &&
+                    (pipe1?cpu.state().lo.high:cpu.state().lo.low)==neg1 &&
+                    (pipe1?cpu.state().hi.low:cpu.state().hi.high)==(pipe1?before.hi.low:before.hi.high),
+                    "divide zero result failed");
             }
             for(auto bad: {opcode(op,16,1,0),opcode(op,17,1,1,0),opcode(op,18,0,1),
                           opcode(op,19,1,0,1),opcode(op,24,1,2,3,1),opcode(op,26,1,2,3)}) {

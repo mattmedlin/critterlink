@@ -100,12 +100,11 @@ division. Full-System restoration reproduces subsequent traces and RAM.
 
 ## Remaining limits and ownership
 
-- **#17:** scalar/packed-word zero divisors and noncanonical word
-  multiply/divide sources remain explicit stops. PDIVBW zero-divisor behavior
-  is supported using the published hardware evidence linked in CPU coverage.
-- **#17:** SA uses an internal bit-count token. Physical MFSA/MTSA encoding and
-  arbitrary hardware token compatibility remain unverified; QFSRV accepts only
-  supported tokens. This is not a missing MMI opcode.
+- **#17:** noncanonical word multiply/divide sources remain explicit stops.
+  Zero-divisor handling in all scalar/packed forms now follows the published
+  hardware evidence linked in CPU coverage.
+- **#17/#27:** MFSA/MTSA guest byte-count encoding now follows published hardware
+  results. Internal SA remains a bit count; pipeline spacing is still unmodeled.
 - **#17:** undefined-input cases and manual inconsistencies need broader
   hardware conformance evidence. Horizontal HI/LO upper words use a documented
   inference from published results, not a universal hardware guarantee.

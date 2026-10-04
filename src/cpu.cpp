@@ -317,15 +317,14 @@ InstructionTrace Cpu::step(Memory& memory) {
                     ((word & 0x80000000U) != 0 ? 0x100000000LL : 0LL);
             };
             if (divide) {
-                // Zero-divisor results remain unverified here; 64-bit intermediates
-                // safely implement the specified INT32_MIN/-1 word result.
-                if (word_b == 0) {
-                    return fail(StopKind::unsupported_instruction,
-                        "word divide-by-zero result is outside the supported policy");
-                }
-                const auto quotient = unsigned_operation ? std::uint64_t{word_a / word_b} :
+                // Published PS2 results define zero-divisor outputs; wide signed
+                // intermediates also safely implement INT32_MIN/-1.
+                const auto quotient = word_b == 0 ?
+                    ((!unsigned_operation && (word_a & 0x80000000U)) ? 1ULL : 0xffffffffULL) :
+                    unsigned_operation ? std::uint64_t{word_a / word_b} :
                     static_cast<std::uint64_t>(signed_word(word_a) / signed_word(word_b));
-                const auto remainder = unsigned_operation ? std::uint64_t{word_a % word_b} :
+                const auto remainder = word_b == 0 ? std::uint64_t{word_a} :
+                    unsigned_operation ? std::uint64_t{word_a % word_b} :
                     static_cast<std::uint64_t>(signed_word(word_a) % signed_word(word_b));
                 lo = sign_extend(quotient, 32);
                 hi = sign_extend(remainder, 32);
@@ -436,11 +435,11 @@ InstructionTrace Cpu::step(Memory& memory) {
                 break;
             case 40: // MFSA: the saved representation is opaque to guest software.
                 if (rs != 0 || rt != 0 || shift != 0) return unsupported();
-                write(rd, state_.sa);
+                write(rd, (state_.sa / 8U) & 15U);
                 break;
             case 41: // MTSA restores a previously saved representation.
                 if (rt != 0 || rd != 0 || shift != 0) return unsupported();
-                next.sa = a;
+                next.sa = (a & 15U) * 8U;
                 break;
             default: return unsupported();
             }
@@ -651,10 +650,10 @@ InstructionTrace Cpu::step(Memory& memory) {
                             (lane == 0 ? product.low : product.high) = value;
                             low = value; high = value >> 32U;
                         } else {
-                            if (y == 0)
-                                return fail(StopKind::unsupported_instruction,
-                                            "packed word divide by zero is unsupported");
-                            if (function == 9) {
+                            if (y == 0) {
+                                low = function == 9 && (x & 0x80000000U) ? 1U : 0xffffffffU;
+                                high = x;
+                            } else if (function == 9) {
                                 low = static_cast<std::uint64_t>(signed_word(x) / signed_word(y));
                                 high = static_cast<std::uint64_t>(signed_word(x) % signed_word(y));
                             } else { low = x / y; high = x % y; }

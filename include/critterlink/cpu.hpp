@@ -39,7 +39,7 @@ struct Cop0State {
 struct CpuState {
     std::array<Register128, 32> gpr{};
     Register128 hi{}, lo{};
-    // Functional SA representation; preserve the complete MFSA/MTSA save token.
+    // Internal funnel count in bits; guest MFSA/MTSA use a four-bit byte count.
     std::uint64_t sa{};
     std::uint32_t pc{};
     std::uint32_t next_pc{4};
