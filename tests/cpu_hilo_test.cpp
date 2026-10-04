@@ -43,6 +43,7 @@ int main() {
                 Arithmetic{24,0xffffffff80000000ULL,0xffffffff80000000ULL,0x40000000,0},
                 Arithmetic{25,neg1,neg1,neg2,1},
                 Arithmetic{25,neg1,1,0,neg1},
+                Arithmetic{26,0xffffffff80000000ULL,neg1,0,0xffffffff80000000ULL},
                 Arithmetic{26,7,3,1,2}, Arithmetic{26,0xfffffffffffffff9ULL,3,neg1,neg2},
                 Arithmetic{26,7,0xfffffffffffffffdULL,1,neg2},
                 Arithmetic{26,0xfffffffffffffff9ULL,0xfffffffffffffffdULL,neg1,2},
@@ -97,8 +98,6 @@ int main() {
                 check(cpu.step(memory).stop && cpu.state().hi==before.hi && cpu.state().lo==before.lo,
                     "divide zero policy failed");
             }
-            setup(opcode(op,26,1,2,0),0xffffffff80000000ULL,neg1);
-            check(cpu.step(memory).stop.has_value(),"signed divide overflow policy failed");
             for(auto bad: {opcode(op,16,1,0),opcode(op,17,1,1,0),opcode(op,18,0,1),
                           opcode(op,19,1,0,1),opcode(op,24,1,2,3,1),opcode(op,26,1,2,3)}) {
                 setup(bad,1,2);const auto before=cpu.state();

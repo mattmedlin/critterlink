@@ -317,10 +317,11 @@ InstructionTrace Cpu::step(Memory& memory) {
                     ((word & 0x80000000U) != 0 ? 0x100000000LL : 0LL);
             };
             if (divide) {
-                // Stop on unverified exceptional results; never invoke host signed division overflow.
-                if (word_b == 0 || (!unsigned_operation && word_a == 0x80000000U && word_b == 0xffffffffU)) {
+                // Zero-divisor results remain unverified here; 64-bit intermediates
+                // safely implement the specified INT32_MIN/-1 word result.
+                if (word_b == 0) {
                     return fail(StopKind::unsupported_instruction,
-                        "divide-by-zero or signed division overflow result is outside the supported policy");
+                        "word divide-by-zero result is outside the supported policy");
                 }
                 const auto quotient = unsigned_operation ? std::uint64_t{word_a / word_b} :
                     static_cast<std::uint64_t>(signed_word(word_a) / signed_word(word_b));
@@ -650,9 +651,9 @@ InstructionTrace Cpu::step(Memory& memory) {
                             (lane == 0 ? product.low : product.high) = value;
                             low = value; high = value >> 32U;
                         } else {
-                            if (y == 0 || (function == 9 && x == 0x80000000U && y == 0xffffffffU))
+                            if (y == 0)
                                 return fail(StopKind::unsupported_instruction,
-                                            "packed word divide by zero or signed overflow is unsupported");
+                                            "packed word divide by zero is unsupported");
                             if (function == 9) {
                                 low = static_cast<std::uint64_t>(signed_word(x) / signed_word(y));
                                 high = static_cast<std::uint64_t>(signed_word(x) % signed_word(y));

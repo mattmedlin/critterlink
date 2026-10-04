@@ -1,6 +1,6 @@
 # EE integer execution audit — issue #16
 
-Audit date: 2026-10-04, updated through packed halfword products and broadcast division.
+Audit date: 2026-10-04, updated through the MMI inventory audit and signed divide correction.
 This compares the decoder in `src/cpu.cpp` with Sony's EE instruction inventory.
 It is a source review, not a new conformance run. **#16 remains open.**
 
@@ -56,8 +56,8 @@ functional implementations too. QFSRV, packed logical operations and immediate
 lane shifts, wrapping/saturating add/subtract and equality/signed greater-than
 comparisons, selection/mixed arithmetic, rearrangement, full HI/LO moves,
 word multiply/divide/accumulate, formatted HI/LO moves and variable word shifts are implemented;
-halfword products and broadcast division are now implemented too. A fresh MMI
-inventory/conformance audit remains under #17. SA encoding and pipeline spacing remain abstractions,
+halfword products and broadcast division are now implemented too. The [MMI audit](ee-mmi-audit.md) finds decoder coverage for all named opcode-0x1c
+entries while retaining explicit conformance gaps under #17. SA encoding and pipeline spacing remain abstractions,
 not hardware-verified behavior.
 See Sony's [instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf),
 printed pages 96, 121, 148, 151–153 and the chapter 3 inventory.
@@ -77,9 +77,10 @@ barrier is reached. Adding those requires extending the completion contract. See
 ## Remaining implementation limitations
 
 - Scalar results preserve upper GPR lanes; LQ and full packed results replace both.
-  MMI completeness/conformance requires a fresh audit; COP1/COP2 execution is incomplete.
+  MMI decoder inventory is complete within its documented restrictions; COP1/COP2 execution is incomplete.
 - Scalar and packed-word multiply/divide operands must be canonical sign-extended words. Division by
-  zero and signed division overflow stop explicitly in scalar and packed-word forms.
+  zero stops explicitly in scalar and packed-word forms; signed minimum/-1 now
+  returns the manual-specified quotient/remainder without an exception.
   PDIVBW accepts all source bit patterns and has explicit zero/overflow results. Other word arithmetic uses
   low-word operands deterministically; undefined hardware inputs are not proven.
 - Branches in delay slots and unpredictable link/source overlaps stop. Ordinary
@@ -101,7 +102,7 @@ barrier is reached. Adding those requires extending the completion contract. See
 | Work | Tracking / evidence needed |
 | --- | --- |
 | Extend PREF/SYNC with cache/pipeline model | #17/#27: cache behavior, write-buffer flushing, pending operation completion and hardware timing; current functional contract is tested |
-| Packed execution and SA hardware behavior | #17/#27: fresh MMI inventory/conformance audit, physical SA encoding and pipeline spacing; implemented instruction tests do not establish full hardware behavior |
+| Packed execution and SA hardware behavior | #17/#27: MMI conformance gaps (see [audit](ee-mmi-audit.md)), physical SA encoding and pipeline spacing; implemented instruction tests do not establish full hardware behavior |
 | Extend memory targets | #18: scratchpad, ROM/reset, virtual translation and privilege; test boundaries, aliases and fault precision |
 | Device memory transactions | #16 with #20: byte-enable and quadword bus API, full/empty FIFO behavior, no read-modify-write side effects, atomic rejection |
 | Full exception semantics | #17/#18: architectural unsupported-instruction and translation dispatch after the required state exists |

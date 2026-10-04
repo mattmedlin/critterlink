@@ -189,10 +189,11 @@ are sign-extended words, including unsigned operations. Moves transfer the entir
 selected 64-bit lane. These operations commit immediately; pipeline latency and
 interlock timing remain part of #27.
 
-Manual-undefined noncanonical word operands, division by zero and signed
-INT_MIN/-1 division stop explicitly without changing registers or fabricating a
-CPU exception. Their actual hardware results require separate validation; these
-stops are a remaining compatibility limitation, not a conformance claim. Arithmetic
+Manual-undefined noncanonical word operands and division by zero stop explicitly
+without changing registers or fabricating a CPU exception. Signed INT_MIN/-1
+now produces sign-extended quotient 0x80000000 and remainder zero, as specified
+by the manual; the [MMI audit](ee-mmi-audit.md) records the correction. Zero-divisor
+stops remain a compatibility limitation. Arithmetic
 is implemented without host signed overflow. Tests cover both pipelines, signed
 and unsigned products/quotients/remainders, accumulator carry/wrap, lane isolation,
 r0 destinations, invalid encodings and restored mixed-pipeline execution.
@@ -411,8 +412,9 @@ updates both HI/LO halves.
 
 The manual requires canonical sign-extended 32-bit operands in each source
 half, including unsigned multiplication/division. Noncanonical operands stop.
-Zero divisors and signed minimum/-1 division also stop under the existing scalar
-divide policy; no guest exception or unverified result is fabricated. Both lanes
+Zero divisors stop under the existing scalar divide policy. Signed minimum/-1
+division returns sign-extended quotient 0x80000000 and remainder zero, without
+a guest exception. Both lanes
 commit atomically, so an unsupported second lane leaves the first unchanged.
 Multiplication/division latency and pipeline hazards remain unmodeled.
 
@@ -489,8 +491,7 @@ hardware results agree on sign extension. Minimum signed word divided by -1
 returns 0x80000000 and remainder zero as specified in the programming notes.
 For zero divisors, published results support quotient -1 for nonnegative inputs
 or +1 for negative inputs and the original dividend as remainder; this behavior
-is implemented here. Earlier scalar/packed-word divide edge restrictions remain
-unchanged. No guest exception is raised for these PDIVBW edge cases.
+is implemented here. Scalar/packed-word zero-divisor restrictions remain. No guest exception is raised for these PDIVBW edge cases.
 
 `cpu_packed_halfword` checks mixed signed boundary products, wraparound, all
 65,535 nonzero divisor encodings through quotient/remainder identities, literal
@@ -505,6 +506,23 @@ printed pages 192–193, 209–212, 216–217, 239–240 and 246–247;
 [published PS2 test outputs](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/ee_simd/muldiv.expected)
 and their [input definitions](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/ee_simd/shared.h).
 No external emulator implementation was imported; this is not a new physical
-hardware run. MMI completeness still requires a fresh inventory/conformance
-audit. Asynchronous timing/interlocks, SA hardware encoding, FPU/control and
+hardware run. The [MMI inventory audit](ee-mmi-audit.md) confirms all named opcode-0x1c
+entries have decoder paths, with conformance gaps still explicit. Asynchronous timing/interlocks, SA hardware encoding, FPU/control and
 broader system work remain. #17 and #4 stay open.
+
+
+## MMI inventory and signed divide correction (#17)
+
+The [MMI audit](ee-mmi-audit.md) publishes all subgroup and direct-function
+entries, distinguishes decoder coverage from hardware conformance, and assigns
+remaining gaps. `cpu_mmi_audit` sweeps all 2,048 function/subopcode pairs under
+canonical operands, accepting the 257 legal/restricted-policy pairs and checking
+atomic rejection of the others. Detailed arithmetic suites remain necessary.
+
+DIV, DIV1 and PDIVW now implement the manual-specified signed minimum/-1 result:
+quotient 0x80000000, remainder zero, with word sign extension and no guest
+exception. The correction uses existing signed 64-bit intermediates without
+host overflow. Scalar pipeline isolation, either/both packed lanes, preserved
+state, delay/annul behavior, guest RAM output and full-System replay are tested.
+Zero divisors and noncanonical word operands remain explicit stops in these
+paths. #17 and #4 remain open.

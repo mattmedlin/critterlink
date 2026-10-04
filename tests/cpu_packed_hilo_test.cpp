@@ -63,6 +63,7 @@ void divide() {
     Memory memory; Cpu cpu;
     struct Vector { unsigned fn; Register128 left,right,quotient,remainder; };
     const std::array vectors{
+        Vector{9,{extend(0x80000000U),extend(0x80000000U)},{~0ULL,~0ULL},{extend(0x80000000U),extend(0x80000000U)},{0,0}},
         Vector{9,{7,extend(0xfffffff9U)},{3,2},{2,extend(0xfffffffdU)},{1,~0ULL}},
         Vector{9,{7,extend(0xfffffff9U)},{extend(0xfffffffdU),extend(0xfffffffdU)},
             {extend(0xfffffffeU),2},{1,~0ULL}},
@@ -132,9 +133,6 @@ void invalid() {
         auto before=initial(); (lane==0?before.gpr[2].low:before.gpr[2].high)=0;
         reject(memory,cpu,mmi(fn,13,1,2,0),before);
         for(unsigned rd:{1U,2U,4U,8U,16U}) reject(memory,cpu,mmi(fn,13,1,2,rd),initial());
-        before=initial(); (lane==0?before.gpr[1].low:before.gpr[1].high)=extend(0x80000000U);
-        (lane==0?before.gpr[2].low:before.gpr[2].high)=~0ULL;
-        reject(memory,cpu,mmi(9,13,1,2,0),before);
     }
     reject(memory,cpu,mmi(41,2),initial());
 }
