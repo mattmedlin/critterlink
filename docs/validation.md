@@ -935,3 +935,31 @@ not establish BIOS boot or game compatibility; #18 and #4 remain open.
 [GitHub Actions run 37240123551](https://github.com/mattmedlin/critterlink/actions/runs/37240123551)
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `0e9952a`, including Linux Release after the portable test correction.
+
+
+## EE uncached accelerated read buffer
+
+On October 4, 2026, all 56 local Apple Silicon suites passed Debug, Release and
+ASan/UBSan for production commit `5b5140b` (191.06, 12.89 and 387.42 seconds).
+Final test-only commit `d358065` adds full-GIF-FIFO retry coverage; its UCAB suite
+passed all three configurations (4.11, 0.56 and 8.48 seconds).
+
+Mode-7 data loads now use a physically tagged 128-byte read buffer. Tests cover
+stale data across both 64-byte halves, replacement, mapped aliases, scalar/FPU/
+merge/quadword paths, all SYNC stypes, uncached/cached/scratchpad invalidation,
+exceptions, IRQ entry, annulled stores, ROM boundaries and snapshot rejection.
+An original guest observes old buffered bytes, executes SYNC.L, reads fresh RAM
+and stores a literal result. Checkpoint replay reproduces complete System state
+and traces. A stalled GIF SQ preserves the buffer; its successful retry clears it.
+
+The [cache contract](cache.md) separates implementation from remaining evidence:
+DCE's mode-7 override and the exception invalidation set need physical EE
+confirmation. The related C790 manual informs the all-exception interpretation;
+it is not a new PS2 console measurement. Write gathering, transfer ordering,
+nonblocking overlap and bus timing remain unimplemented. No proprietary firmware
+was used, and no BIOS boot or general game compatibility is claimed. #18/#4 stay
+open.
+
+[GitHub Actions run 37243258019](https://github.com/mattmedlin/critterlink/actions/runs/37243258019)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`d358065`, including the final FIFO retry regression.
