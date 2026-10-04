@@ -30,14 +30,14 @@ void vectors(){
   result(m,cpu,0x00800000U|sign,0x20000000);
  }
  // Powers of four have exact roots; twice those powers scales the known sqrt(2).
- for(int power=-63;power<=64;++power){
-  const auto input=static_cast<std::uint32_t>(2*power+127)<<23U;
-  const auto output=static_cast<std::uint32_t>(power+127)<<23U;
+ for(unsigned exponent=1;exponent<256;exponent+=2){
+  const auto input=exponent<<23U;
+  const auto output=((exponent+127U)/2U)<<23U;
   result(m,cpu,input,output);result(m,cpu,input|0x80000000U,output);
  }
- for(int power=-63;power<64;++power){
-  const auto input=static_cast<std::uint32_t>(2*power+128)<<23U;
-  const auto output=(static_cast<std::uint32_t>(power+127)<<23U)|0x003504f3U;
+ for(unsigned exponent=2;exponent<256;exponent+=2){
+  const auto input=exponent<<23U;
+  const auto output=(((exponent+126U)/2U)<<23U)|0x003504f3U;
   result(m,cpu,input,output);result(m,cpu,input|0x80000000U,output);
  }
  for(unsigned ft=0;ft<32;++ft)for(unsigned fd=0;fd<32;++fd){
