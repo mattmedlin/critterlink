@@ -68,6 +68,8 @@ limitation, not a fabricated architectural Reserved Instruction exception.
 | Packed comparisons | PCEQ B/H/W, PCGT B/H/W | Equality and signed greater-than; all-one/zero lane masks |
 | Packed logical | PAND, POR, PXOR, PNOR | Full 128-bit Boolean results; both destination lanes replaced |
 | Packed HI/LO moves | PMFHI, PMFLO, PMTHI, PMTLO | Full 128-bit transfers with reserved-field checks |
+| Packed word accumulates | PMADDW, PMADDUW, PMSUBW | Two modulo-64-bit accumulators assembled from low HI/LO words; full rd results |
+| Formatted HI/LO transfers | PMFHL.LW/UW/SLW/LH/SH, PMTHL.LW | Word/halfword routing, signed saturation, preserved upper words on PMTHL |
 | Packed word multiply/divide | PMULTW, PMULTUW, PDIVW, PDIVUW | Two independent word operations; full products in rd; sign-extended HI/LO words; restricted divide inputs below |
 | Packed variable shifts | PSLLVW, PSRLVW, PSRAVW | Low word of each doubleword; independent five-bit counts; sign-extended doubleword results |
 | Packed immediate shifts | PSLLH, PSRLH, PSRAH, PSLLW, PSRLW, PSRAW | Independent 16/32-bit lanes; see halfword count restrictions below |
@@ -392,7 +394,7 @@ lanes and diagram define a full interleaved 32-bit pair. PEXEW follows its expli
 operation/diagram. Published [PS2 hardware results](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/ee_simd/arithmetic.expected)
 corroborate the PABSH/PABSW minimum-value clamp. No external emulator code was
 imported; these are project-authored tests, not a new physical-hardware run.
-Additional packed multiply/accumulate, halfword division, formatted HI/LO moves
+Additional packed halfword multiply/accumulate, halfword division
 and other architectural work remain.
 
 
@@ -427,5 +429,38 @@ independently expected results, including full-System snapshot restoration.
 Primary reference: Sony's [EE instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf),
 printed pages 194–197, 226–227, 234, 243, 245, 248–251, 262–263, 265–266 and
 268–269. Expectations are manual-based functional tests, not a new hardware run.
-Packed accumulates, halfword multiply/divide and formatted PMFHL/PMTHL remain
-unsupported, alongside FPU/control and broader system work. #17 and #4 stay open.
+Packed halfword multiply/accumulate/divide remain unsupported, alongside
+FPU/control and broader system work. #17 and #4 stay open.
+
+
+## Packed word accumulates and formatted HI/LO transfers (#17)
+
+PMADDW/PMADDUW/PMSUBW assemble two 64-bit accumulators from the low word
+of each HI half followed by the low word of the corresponding LO half. Upper
+words of HI/LO are ignored on input. Signed or unsigned word products are added,
+or signed products subtracted, modulo 64 bits without a guest overflow exception.
+The full results replace rd; individual HI/LO words are sign-extended into their
+64-bit halves. Canonical sign-extended source operands are required even for
+PMADDUW, with atomic rejection if either half is noncanonical. r0 discards only
+the GPR result. Unsigned host accumulation avoids signed overflow.
+
+PMFHL.LW/UW select lower/upper words from HI/LO. PMFHL.LH truncates each
+accumulator word to a halfword; PMFHL.SH instead saturates each signed word to
+[-32768,32767]. PMFHL.SLW assembles each accumulator as above, saturates its
+signed 64-bit value to signed 32-bit range, and sign-extends the result. PMTHL.LW
+writes the four input words to the low words of the HI/LO halves while preserving
+every upper word. These transfers accept arbitrary bit patterns; all reserved
+fields and unsupported format values reject before mutation.
+
+`cpu_packed_accumulate` checks literal carry/borrow/wrap and signed/unsigned
+product vectors, ignored accumulator upper words, every source bit for LW/UW/LH
+routing, signed saturation boundaries, preserved PMTHL words, aliases/r0,
+noncanonical operand atomicity, reserved formats/fields, branch slots and replay.
+An original guest initializes, repeatedly accumulates, reads and stores formatted
+results, subtracts, and reproduces RAM/state/traces after full-System restoration.
+
+Primary reference: Sony's [EE instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf),
+printed pages 218–221, 227–233, 241–242 and 244. These are functional manual-based
+expectations, not a new physical-hardware run. Asynchronous multiply timing,
+interlocks, halfword multiply/accumulate/divide, FPU/control and broader system
+work remain. #17 and #4 stay open.

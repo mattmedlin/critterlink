@@ -572,7 +572,7 @@ InstructionTrace Cpu::step(Memory& memory) {
                         variable(state_.gpr[rs].high, state_.gpr[rt].high)};
                     break;
                 }
-                if (shift == 12 || shift == 13) {
+                if (shift == 0 || (function == 9 && shift == 4) || shift == 12 || shift == 13) {
                     if (shift == 13 && rd != 0) return unsupported();
                     Register128 product;
                     for (unsigned lane = 0; lane < 2; ++lane) {
@@ -588,10 +588,16 @@ InstructionTrace Cpu::step(Memory& memory) {
                                 ((word & 0x80000000U) != 0 ? 0x100000000LL : 0LL);
                         };
                         std::uint64_t low{}, high{};
-                        if (shift == 12) {
-                            const auto value = function == 9 ?
+                        if (shift != 13) {
+                            auto value = function == 9 ?
                                 static_cast<std::uint64_t>(signed_word(x) * signed_word(y)) :
                                 static_cast<std::uint64_t>(x) * y;
+                            if (shift != 12) {
+                                const auto hi = lane == 0 ? state_.hi.low : state_.hi.high;
+                                const auto lo = lane == 0 ? state_.lo.low : state_.lo.high;
+                                const auto accumulator = (hi << 32U) | (lo & 0xffffffffULL);
+                                value = shift == 4 ? accumulator - value : accumulator + value;
+                            }
                             (lane == 0 ? product.low : product.high) = value;
                             low = value; high = value >> 32U;
                         } else {
@@ -606,7 +612,7 @@ InstructionTrace Cpu::step(Memory& memory) {
                         (lane == 0 ? next.lo.low : next.lo.high) = sign_extend(low, 32);
                         (lane == 0 ? next.hi.low : next.hi.high) = sign_extend(high, 32);
                     }
-                    if (shift == 12 && rd != 0) next.gpr[rd] = product;
+                    if (shift != 13 && rd != 0) next.gpr[rd] = product;
                     break;
                 }
                 if (shift != 18 && shift != 19) return unsupported();
@@ -631,6 +637,43 @@ InstructionTrace Cpu::step(Memory& memory) {
                     return (words[index] >> amount) | (words[index + 1] << (64U - amount));
                 };
                 if (rd != 0) next.gpr[rd] = {funnel(start), funnel(start + 1)};
+                break;
+            }
+            case 48: { // PMFHL: combine or saturate the accumulator words.
+                if (rs != 0 || rt != 0 || shift > 4) return unsupported();
+                Register128 result;
+                for (unsigned lane = 0; lane < 2; ++lane) {
+                    const auto hi = lane == 0 ? state_.hi.low : state_.hi.high;
+                    const auto lo = lane == 0 ? state_.lo.low : state_.lo.high;
+                    auto& value = lane == 0 ? result.low : result.high;
+                    if (shift == 0) value = (hi << 32U) | (lo & 0xffffffffULL);
+                    else if (shift == 1) value = (hi & 0xffffffff00000000ULL) | (lo >> 32U);
+                    else if (shift == 2) {
+                        const auto combined = (hi << 32U) | (lo & 0xffffffffULL);
+                        value = signed_less(combined, 0xffffffff80000000ULL) ? 0xffffffff80000000ULL :
+                            signed_less(0x7fffffffULL, combined) ? 0x7fffffffULL : sign_extend(lo, 32);
+                    } else {
+                        const std::array words{lo, lo >> 32U, hi, hi >> 32U};
+                        for (unsigned word = 0; word < 4; ++word) {
+                            auto part = words[word] & 0xffffULL;
+                            if (shift == 4) {
+                                const auto extended = sign_extend(words[word], 32);
+                                if (signed_less(extended, 0xffffffffffff8000ULL)) part = 0x8000;
+                                else if (signed_less(0x7fff, extended)) part = 0x7fff;
+                            }
+                            value |= part << (word * 16U);
+                        }
+                    }
+                }
+                if (rd != 0) next.gpr[rd] = result;
+                break;
+            }
+            case 49: { // PMTHL.LW preserves the upper word of every HI/LO half.
+                if (rt != 0 || rd != 0 || shift != 0) return unsupported();
+                next.lo = {(state_.lo.low & 0xffffffff00000000ULL) | (a & 0xffffffffULL),
+                           (state_.lo.high & 0xffffffff00000000ULL) | (state_.gpr[rs].high & 0xffffffffULL)};
+                next.hi = {(state_.hi.low & 0xffffffff00000000ULL) | (a >> 32U),
+                           (state_.hi.high & 0xffffffff00000000ULL) | (state_.gpr[rs].high >> 32U)};
                 break;
             }
             case 52: case 54: case 55: case 60: case 62: case 63: {

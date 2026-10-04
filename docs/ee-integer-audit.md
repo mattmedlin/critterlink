@@ -1,6 +1,6 @@
 # EE integer execution audit — issue #16
 
-Audit date: 2026-10-03, updated through packed HI/LO, word multiply/divide and variable shifts.
+Audit date: 2026-10-03, updated through packed word accumulates and formatted HI/LO transfers.
 This compares the decoder in `src/cpu.cpp` with Sony's EE instruction inventory.
 It is a source review, not a new conformance run. **#16 remains open.**
 
@@ -33,6 +33,8 @@ pipeline behavior. Detailed test contracts are in [cpu-coverage.md](cpu-coverage
 | Packed comparisons | PCEQB/H/W, PCGTB/H/W |
 | Packed logical | PAND, POR, PXOR, PNOR |
 | Packed HI/LO moves | PMFHI, PMFLO, PMTHI, PMTLO |
+| Packed word accumulates | PMADDW, PMADDUW, PMSUBW |
+| Formatted HI/LO transfers | PMFHL.LW/UW/SLW/LH/SH, PMTHL.LW |
 | Packed word multiply/divide | PMULTW, PMULTUW, PDIVW, PDIVUW |
 | Packed variable shifts | PSLLVW, PSRLVW, PSRAVW |
 | Packed immediate shifts | PSLLH, PSRLH, PSRAH, PSLLW, PSRLW, PSRAW |
@@ -51,7 +53,7 @@ interpreter (see CPU coverage). MFSA, MTSA, MTSAB, MTSAH and PLZCW now have
 functional implementations too. QFSRV, packed logical operations and immediate
 lane shifts, wrapping/saturating add/subtract and equality/signed greater-than
 comparisons, selection/mixed arithmetic, rearrangement, full HI/LO moves,
-word multiply/divide and variable word shifts are implemented;
+word multiply/divide/accumulate, formatted HI/LO moves and variable word shifts are implemented;
 remaining MMI operations are still missing under
 #17. SA encoding and pipeline spacing remain abstractions,
 not hardware-verified behavior.
