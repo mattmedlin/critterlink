@@ -106,7 +106,7 @@ as a **synthetic identity-mapped bootstrap window**. Boot-vector execution inste
 enables [architectural TLB translation and privilege checks](mmu.md). Kernel aliases `0x80000000–0x81ffffff` and `0xa0000000–0xa1ffffff` share
 those bytes via direct translation. Cache attributes and privilege permissions
 are not modeled in the flat diagnostic profile. Architectural mode enforces
-privilege but still bypasses caches. Host-loaded boot ROM is also readable at physical `0x1fc00000`
+privilege and now uses [functional caches](cache.md) when enabled. Host-loaded boot ROM is also readable at physical `0x1fc00000`
 and its two kernel aliases; see [memory/reset](memory.md). Other kernel direct-map
 addresses fail as unimplemented memory or devices; other virtual addresses fail
 as unsupported translation in the flat profile. Architectural mode dispatches

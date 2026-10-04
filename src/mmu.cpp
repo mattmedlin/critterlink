@@ -81,7 +81,7 @@ Translation translate(const MmuState& s,std::uint32_t status,std::uint32_t addre
     const auto mode=kernel_mode(status)?0U:(status>>3U)&3U;
     if((mode==2 && address>=0x80000000U) || (mode==1 && address>=0x80000000U &&
        (address<0xc0000000U || address>=0xe0000000U))) throw TranslationFault{access==Access::store?5U:4U,address};
-    if(mode==0 && address>=0x80000000U && address<0xc0000000U) return {address&0x1fffffffU};
+    if(mode==0 && address>=0x80000000U && address<0xc0000000U) return {address&0x1fffffffU,false,true,false,address<0xa0000000U?3U:2U};
     if(mode==0 && (status&4U)!=0 && address<0x80000000U) return {address};
     const auto index=find(s,(address&0xffffe000U)|(s.hi&0xffU));
     if(!index) throw TranslationFault{access==Access::store?3U:2U,address,true};
@@ -96,6 +96,6 @@ Translation translate(const MmuState& s,std::uint32_t status,std::uint32_t addre
     }
     const auto cache=(lo>>3U)&7U;
     if(cache!=2 && cache!=3 && cache!=7) throw std::invalid_argument("reserved TLB cache attribute");
-    return {(((lo&0x03ffffc0U)<<6U)&~(page_size-1U)) | (address&(page_size-1U)),false,(e.lo0&1U)!=0,true};
+    return {(((lo&0x03ffffc0U)<<6U)&~(page_size-1U)) | (address&(page_size-1U)),false,(e.lo0&1U)!=0,true,cache};
 }
 } // namespace critterlink

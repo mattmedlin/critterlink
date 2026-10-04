@@ -18,7 +18,7 @@ struct MmuState {
     }();
     bool operator==(const MmuState&) const = default;
 };
-struct Translation { std::uint32_t address; bool scratchpad{}, global{true}, mapped{}; };
+struct Translation { std::uint32_t address; bool scratchpad{}, global{true}, mapped{}; unsigned cache_mode{2}; };
 struct TranslationFault { unsigned code; std::uint32_t address; bool refill{}; };
 bool kernel_mode(std::uint32_t status) noexcept;
 bool valid_page_mask(std::uint32_t mask) noexcept;

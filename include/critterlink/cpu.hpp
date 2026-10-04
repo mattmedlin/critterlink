@@ -2,6 +2,7 @@
 
 #include "critterlink/memory.hpp"
 #include "critterlink/mmu.hpp"
+#include "critterlink/cache.hpp"
 
 #include <array>
 #include <cstdint>
@@ -56,6 +57,7 @@ struct CpuState {
     Cop0State cop0{};
     FpuState fpu{};
     MmuState mmu{};
+    CacheState cache{};
     // Boot-vector execution uses architectural translation. Original fixtures opt
     // into the existing flat bootstrap profile through the default reset API.
     bool architectural_memory{};

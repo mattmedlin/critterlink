@@ -22,8 +22,8 @@ combined G reflected in both low words. Page sizes are 4/16/64/256 KiB and
 set. Even/odd page selection uses the page-size bit. Low PFN bits below the
 page size do not participate in the physical address. Valid/Dirty checks occur
 before the physical access. C=2/3/7 are accepted; reserved attributes stop.
-**Cache attributes currently share uncached backing**; no cache visibility,
-UCAB or physical timing fidelity is claimed.
+[Functional instruction/data caches](cache.md) now handle enabled cached
+accesses. UCAB and physical timing fidelity remain unimplemented.
 
 | Fault | ExcCode | Vector with EXL clear, BEV clear/set |
 | --- | --- | --- |

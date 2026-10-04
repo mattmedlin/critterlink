@@ -249,6 +249,7 @@ void Cpu::restore(CpuState state) {
     }
     if ((state.cop0.status & 0x18U) == 0x18U) throw std::invalid_argument("reserved COP0 privilege mode");
     validate_mmu(state.mmu);
+    validate_cache(state.cache);
     state.gpr[0] = {};
     state_ = std::move(state);
 }
@@ -304,6 +305,7 @@ InstructionTrace Cpu::step(Memory& memory) {
                     "unsupported instruction or encoding; see docs/cpu-coverage.md");
     };
 
+    CacheState* active_cache=&state_.cache;
     const auto translated = [&](std::uint32_t address,unsigned alignment,Access access) {
         if(address%alignment!=0) throw TranslationFault{access==Access::store?5U:4U,address};
         Translation result{address};
@@ -311,22 +313,28 @@ InstructionTrace Cpu::step(Memory& memory) {
         catch(const std::invalid_argument& error) { throw MemoryFault(MemoryError::translation,access,address,error.what()); }
         if(state_.architectural_memory && !result.scratchpad && result.address>=0x20000000U)
             throw MemoryFault(MemoryError::unmapped,access,address,"physical device range is not implemented");
+        if(state_.architectural_memory && address>=0x80000000U && address<0xa0000000U)
+            result.cache_mode=active_cache->config&7U;
         return result;
     };
     const auto read_memory = [&](std::uint32_t address,unsigned width,Access access=Access::load,bool partial=false) {
         const auto target=translated(address,partial?1U:width,access);
         try {
+            if(state_.architectural_memory && !target.scratchpad && cache_enabled(*active_cache,target.cache_mode,access==Access::fetch))
+                return cache_read(*active_cache,memory,address,target.address,width,access==Access::fetch);
             return target.scratchpad?memory.read_scratchpad(target.address,width):
                 partial?memory.read_partial(target.address,width):memory.read(target.address,width,access);
-        } catch(MemoryFault& fault) { fault.address=address;throw; }
+        } catch(MemoryFault& fault) { fault.address=address;throw; } catch(const std::invalid_argument& error) { throw MemoryFault(MemoryError::device,access,address,error.what()); }
     };
     const auto write_memory = [&](std::uint32_t address,unsigned width,std::uint64_t value,bool partial=false) {
         const auto target=translated(address,partial?1U:width,Access::store);
         try {
             if(target.scratchpad) memory.write_scratchpad(target.address,width,value);
+            else if(state_.architectural_memory && cache_enabled(*active_cache,target.cache_mode,false))
+                cache_write(*active_cache,memory,address,target.address,width,value,target.cache_mode);
             else if(partial) memory.write_partial(target.address,width,value);
             else memory.write(target.address,width,value);
-        } catch(MemoryFault& fault) { fault.address=address;throw; }
+        } catch(MemoryFault& fault) { fault.address=address;throw; } catch(const std::invalid_argument& error) { throw MemoryFault(MemoryError::device,Access::store,address,error.what()); }
     };
     try {
         const auto instruction = static_cast<std::uint32_t>(read_memory(state_.pc, 4, Access::fetch));
@@ -345,6 +353,7 @@ InstructionTrace Cpu::step(Memory& memory) {
         const auto word_b = static_cast<std::uint32_t>(b);
         const auto pc = state_.pc;
         auto next = state_;
+        active_cache=&next.cache;
         next.pc = state_.next_pc;
         next.next_pc = state_.next_pc + 4u;
         next.delay_slot = false;
@@ -635,6 +644,9 @@ InstructionTrace Cpu::step(Memory& memory) {
             }
             if ((rs != 0 && rs != 4) || (instruction & 0x7ffu) != 0) { return unsupported(); }
             if (rs == 4) {
+                if(rd==16) {write_config(next.cache,word_b);break;}
+                if(rd==28) {next.cache.tag_lo=word_b;break;}
+                if(rd==29) {next.cache.tag_hi=word_b;break;}
                 if (write_mmu_register(next.mmu,rd,word_b)) break;
                 if (rd == 12) {
                     // IE/EXL/ERL, KSU, IM0/IM1, EIE, BEV, CU0/CU1.
@@ -645,6 +657,8 @@ InstructionTrace Cpu::step(Memory& memory) {
                 else { return unsupported(); }
                 break;
             }
+            if(rd==16) {write(rt,sign_extend(state_.cache.config,32));break;}
+            if(rd==28 || rd==29) {write(rt,sign_extend(rd==28?state_.cache.tag_lo:state_.cache.tag_hi,32));break;}
             if (const auto value=read_mmu_register(state_.mmu,rd)) { write(rt,sign_extend(*value,32)); }
             else if (rd == 8) { write(rt, sign_extend(state_.cop0.bad_vaddr, 32)); }
             else if (rd == 12) { write(rt, sign_extend(state_.cop0.status, 32)); }
@@ -1055,9 +1069,11 @@ InstructionTrace Cpu::step(Memory& memory) {
                 const auto target=translated(address,16,Access::load);
                 std::array<std::uint64_t,2> value{};
                 try {
-                    value=target.scratchpad?std::array<std::uint64_t,2>{memory.read_scratchpad(target.address,8),memory.read_scratchpad(target.address+8,8)}:
+                    if(state_.architectural_memory && !target.scratchpad && cache_enabled(next.cache,target.cache_mode,false))
+                        value={cache_read(next.cache,memory,address,target.address,8,false),cache_read(next.cache,memory,address+8,target.address+8,8,false)};
+                    else value=target.scratchpad?std::array<std::uint64_t,2>{memory.read_scratchpad(target.address,8),memory.read_scratchpad(target.address+8,8)}:
                         memory.read_quadword(target.address);
-                } catch(MemoryFault& fault) { fault.address=address;throw; }
+                } catch(MemoryFault& fault) { fault.address=address;throw; } catch(const std::invalid_argument& error) { throw MemoryFault(MemoryError::device,Access::load,address,error.what()); }
                 if (rt != 0) next.gpr[rt] = {value[0], value[1]};
             } else {
                 const auto target=translated(address,16,Access::store);
@@ -1065,8 +1081,11 @@ InstructionTrace Cpu::step(Memory& memory) {
                     if(target.scratchpad) {
                         memory.write_scratchpad(target.address,8,b);
                         memory.write_scratchpad(target.address+8,8,state_.gpr[rt].high);
+                    } else if(state_.architectural_memory && cache_enabled(next.cache,target.cache_mode,false)) {
+                        cache_write(next.cache,memory,address,target.address,8,b,target.cache_mode);
+                        cache_write(next.cache,memory,address+8,target.address+8,8,state_.gpr[rt].high,target.cache_mode);
                     } else memory.write_quadword(target.address,{b,state_.gpr[rt].high});
-                } catch(MemoryFault& fault) { fault.address=address;throw; }
+                } catch(MemoryFault& fault) { fault.address=address;throw; } catch(const std::invalid_argument& error) { throw MemoryFault(MemoryError::device,Access::store,address,error.what()); }
             }
             break;
         }
@@ -1082,6 +1101,19 @@ InstructionTrace Cpu::step(Memory& memory) {
             const auto address = word_a + static_cast<std::uint32_t>(signed_immediate);
             const unsigned width = op == 40 ? 1 : op == 41 ? 2 : op == 43 ? 4 : 8;
             write_memory(address, width, b);
+            break;
+        }
+        case 47: {
+            if(!kernel_mode(state_.cop0.status) && (state_.cop0.status&0x10000000U)==0) return enter_exception(11);
+            if(!cache_index_operation(rt) && rt!=0xb && rt!=0xe && rt!=0x18 && rt!=0x1a && rt!=0x1c) return unsupported();
+            const auto address=word_a+static_cast<std::uint32_t>(signed_immediate);
+            if(cache_index_operation(rt)) cache_operation(next.cache,memory,rt,address);
+            else {
+                const auto target=translated(address,1,Access::load);
+                if(target.scratchpad || (target.cache_mode!=0 && target.cache_mode!=3))
+                    throw std::invalid_argument("hit/fill CACHE operation requires a cached address");
+                cache_operation(next.cache,memory,rt,address,target.address);
+            }
             break;
         }
         case 51:

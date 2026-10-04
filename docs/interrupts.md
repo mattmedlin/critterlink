@@ -7,8 +7,8 @@ boot remain incomplete.
 ## Register and entry contract
 
 MFC0 reads BadVAddr (8), Status (12), Cause (13), EPC (14), ErrorEPC (30),
-and the [MMU registers](mmu.md),
-sign-extending the word into the low scalar lane. MTC0 writes Status, EPC, ErrorEPC and writable MMU registers. Cause and BadVAddr are read-only in this subset. Noncanonical encodings
+the [MMU registers](mmu.md), and [Config/TagLo/TagHi](cache.md),
+sign-extending the word into the low scalar lane. MTC0 writes Status, EPC, ErrorEPC, Config/TagLo/TagHi and writable MMU registers. Cause and BadVAddr are read-only in this subset. Noncanonical encodings
 and unsupported registers fail explicitly. Supported Status bits are IE (0),
 EXL (1), ERL (2), KSU (4:3), IM0/IM1 (10/11), EIE (16), BEV (22), CU0 (28),
 and CU1 (29). Writes and snapshots with other Status bits or reserved KSU=3 are
