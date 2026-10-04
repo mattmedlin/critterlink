@@ -694,3 +694,30 @@ alongside other architectural and hardware gaps. #17 and #4 remain open.
 [GitHub Actions run 37225163553](https://github.com/mattmedlin/critterlink/actions/runs/37225163553)
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `93b8f5f`. No platform-specific repairs were needed.
+
+## EE FPU word conversions and sign operations
+
+On October 4, 2026, all 47 local Apple Silicon suites passed Debug, Release and
+ASan/UBSan (147.03, 10.64 and 310.03 seconds respectively) for `ca64b82`.
+CVT.S.W/CVT.W.S use integer normalization, truncation and signed saturation,
+without host floating-point casts. MOV.S copies raw bits; ABS.S/NEG.S change
+only the sign and clear current O/U while preserving sticky flags and other
+FCR31 state. All five instructions support writable FPR0 and register aliasing.
+
+The new `cpu_fpu_convert` suite covers published literal vectors, every float
+exponent, integer powers of two, saturation/truncation boundaries, all register
+pairs, raw exponent-zero/255 patterns, full preserved state, reserved fields,
+CU1 exceptions and delay/annul behavior. An original guest converts -3, negates,
+copies and converts back, writes literal expected results to RAM, then replays
+identically from a full-System snapshot. Existing integrated/CLI checks passed.
+
+[FPU coverage](fpu.md) links the primary manuals and pinned published hardware
+outputs and now inventories all 34 chapter instructions: 19 have implemented
+paths and 15 remain unsupported. This is an instruction inventory, not a
+completion percentage. General arithmetic, accumulator overflow state, pipeline
+timing and wider hardware remain work. No new physical-hardware measurements
+were made. #17 and #4 remain open.
+
+[GitHub Actions run 37226068337](https://github.com/mattmedlin/critterlink/actions/runs/37226068337)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`ca64b82`. No platform-specific repairs were needed.

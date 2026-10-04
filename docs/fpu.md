@@ -5,6 +5,29 @@ word conversions and sign operations. FPRs store raw 32-bit patterns; all
 implemented operations use deterministic integer logic, not host floating-point
 conversion, NaN canonicalization or rounding.
 
+## Instruction inventory
+
+The primary instruction manual's COP1 chapter (printed pages 342–379) lists
+34 instructions. Nineteen have implemented architectural paths below; fifteen
+remain explicit unsupported operations. This inventory counts instructions,
+not hardware fidelity, pipeline completion or milestone progress.
+
+| Instruction(s) | Count | Status | Manual pages |
+| --- | ---: | --- | --- |
+| MFC1, MTC1, CFC1, CTC1, LWC1, SWC1 | 6 | Implemented within register/bus restrictions | 353–354, 358, 364, 371, 379 |
+| BC1F, BC1FL, BC1T, BC1TL | 4 | Implemented architectural delay/annul behavior | 345–348 |
+| C.EQ.S, C.F.S, C.LE.S, C.LT.S | 4 | Implemented EE comparisons | 349–352 |
+| CVT.S.W, CVT.W.S | 2 | Implemented integer-based conversions | 355–356 |
+| ABS.S, MOV.S, NEG.S | 3 | Implemented raw bit/sign behavior | 342, 366, 374 |
+| ADD.S, ADDA.S, SUB.S, SUBA.S | 4 | Unimplemented | 343–344, 377–378 |
+| MUL.S, MULA.S | 2 | Unimplemented | 372–373 |
+| MADD.S, MADDA.S, MSUB.S, MSUBA.S | 4 | Unimplemented | 359–362, 367–370 |
+| MAX.S, MIN.S | 2 | Unimplemented | 363, 365 |
+| DIV.S, SQRT.S, RSQRT.S | 3 | Unimplemented | 357, 375–376 |
+
+Additional work includes arithmetic flag generation, accumulator overflow state,
+interlocks and hardware timing; FCR alias behavior remains restricted as below.
+
 ## State and instruction contract
 
 CPU/System snapshots include all 32 FPRs, a raw 32-bit accumulator reserved for
