@@ -68,6 +68,8 @@ limitation, not a fabricated architectural Reserved Instruction exception.
 | Packed comparisons | PCEQ B/H/W, PCGT B/H/W | Equality and signed greater-than; all-one/zero lane masks |
 | Packed logical | PAND, POR, PXOR, PNOR | Full 128-bit Boolean results; both destination lanes replaced |
 | Packed HI/LO moves | PMFHI, PMFLO, PMTHI, PMTLO | Full 128-bit transfers with reserved-field checks |
+| Packed halfword products | PMULTH, PMADDH, PMSUBH, PHMADH, PHMSBH | Eight signed products; lane-local accumulation or horizontal combination; hardware-derived upper words |
+| Broadcast word divide | PDIVBW | Four signed words divided by the low signed halfword; signed remainders and verified edge cases |
 | Packed word accumulates | PMADDW, PMADDUW, PMSUBW | Two modulo-64-bit accumulators assembled from low HI/LO words; full rd results |
 | Formatted HI/LO transfers | PMFHL.LW/UW/SLW/LH/SH, PMTHL.LW | Word/halfword routing, signed saturation, preserved upper words on PMTHL |
 | Packed word multiply/divide | PMULTW, PMULTUW, PDIVW, PDIVUW | Two independent word operations; full products in rd; sign-extended HI/LO words; restricted divide inputs below |
@@ -85,7 +87,7 @@ declares unpredictable. Control transfer inside a delay slot and JALR with the
 same source and link register stop explicitly rather than choosing a hardware
 interpretation of unpredictable behavior.
 
-Missing families include the remaining MMI/SIMD operations, CACHE operations,
+Remaining architectural work includes MMI conformance/timing, CACHE operations,
 other COP0 registers/TLB, all FPU/COP1 and VU/COP2 operations. No instruction in these
 families is treated as a successful no-op.
 
@@ -335,8 +337,8 @@ branch slots and original guest RAM output. The guest saves/restores SA using
 proper instruction spacing and replays from a snapshot while a different count
 is active. Primary reference: Sony's [EE instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf),
 printed pages 176, 252–253, 261, 263–264, 266–267, 269 and 285–286.
-Additional packed multiply/divide and remaining MMI operations are
-still missing. Arithmetic/comparison and rearrangement additions follow below.
+Later arithmetic/comparison, rearrangement and packed multiply/divide additions
+follow below. Full MMI conformance and timing remain unaudited.
 
 ## Packed add/subtract, saturation and comparisons (#17)
 
@@ -394,8 +396,7 @@ lanes and diagram define a full interleaved 32-bit pair. PEXEW follows its expli
 operation/diagram. Published [PS2 hardware results](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/ee_simd/arithmetic.expected)
 corroborate the PABSH/PABSW minimum-value clamp. No external emulator code was
 imported; these are project-authored tests, not a new physical-hardware run.
-Additional packed halfword multiply/accumulate, halfword division
-and other architectural work remain.
+Additional architectural conformance and timing work remains.
 
 
 ## Packed HI/LO, word multiplication/division and variable shifts (#17)
@@ -429,8 +430,8 @@ independently expected results, including full-System snapshot restoration.
 Primary reference: Sony's [EE instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf),
 printed pages 194–197, 226–227, 234, 243, 245, 248–251, 262–263, 265–266 and
 268–269. Expectations are manual-based functional tests, not a new hardware run.
-Packed halfword multiply/accumulate/divide remain unsupported, alongside
-FPU/control and broader system work. #17 and #4 stay open.
+Later halfword multiply/accumulate/divide additions follow below. FPU/control
+and broader system work remain. #17 and #4 stay open.
 
 
 ## Packed word accumulates and formatted HI/LO transfers (#17)
@@ -462,5 +463,48 @@ results, subtracts, and reproduces RAM/state/traces after full-System restoratio
 Primary reference: Sony's [EE instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf),
 printed pages 218–221, 227–233, 241–242 and 244. These are functional manual-based
 expectations, not a new physical-hardware run. Asynchronous multiply timing,
-interlocks, halfword multiply/accumulate/divide, FPU/control and broader system
+interlocks, FPU/control and broader system
 work remain. #17 and #4 stay open.
+
+
+## Packed halfword multiply/accumulate and broadcast divide (#17)
+
+PMULTH, PMADDH and PMSUBH multiply eight signed halfword pairs and place their
+32-bit products in LO words 0/1, HI words 0/1, LO words 2/3, HI words 2/3.
+Accumulates add/subtract the corresponding existing words modulo 32 bits; rd
+receives the even product lanes. PHMADH adds adjacent products; PHMSBH subtracts
+the even product from the odd product. Their four results go to rd and the low
+word of each HI/LO half. Arbitrary source bit patterns are accepted and source
+capture preserves aliases; r0 destinations still update HI/LO.
+
+The manual marks the horizontal upper HI/LO words undefined. Published PS2
+results show the odd product for PHMADH and its bitwise complement for PHMSBH;
+the implementation uses this evidence-derived behavior. Fixed mixed-sign vectors
+check the complete outputs, alongside independent signed-arithmetic tests.
+
+PDIVBW divides all four signed source words by the signed low halfword of rt.
+Other divisor bits are ignored. Remainders are sign-extended to 32-bit words:
+the manual's prose says zero extension, but its operation, diagram and published
+hardware results agree on sign extension. Minimum signed word divided by -1
+returns 0x80000000 and remainder zero as specified in the programming notes.
+For zero divisors, published results support quotient -1 for nonnegative inputs
+or +1 for negative inputs and the original dividend as remainder; this behavior
+is implemented here. Earlier scalar/packed-word divide edge restrictions remain
+unchanged. No guest exception is raised for these PDIVBW edge cases.
+
+`cpu_packed_halfword` checks mixed signed boundary products, wraparound, all
+65,535 nonzero divisor encodings through quotient/remainder identities, literal
+zero/overflow/negative-remainder vectors, ignored divisor bits, aliases/r0,
+reserved rd/neighbor encodings, delay/annul execution and full-System replay.
+An original guest multiplies, accumulates, subtracts, combines horizontally and
+divides, storing independently specified RAM outputs. A former negative PHMADH
+case now checks a still-reserved neighboring suboperation.
+
+Primary references: Sony's [EE instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf),
+printed pages 192–193, 209–212, 216–217, 239–240 and 246–247;
+[published PS2 test outputs](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/ee_simd/muldiv.expected)
+and their [input definitions](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/ee_simd/shared.h).
+No external emulator implementation was imported; this is not a new physical
+hardware run. MMI completeness still requires a fresh inventory/conformance
+audit. Asynchronous timing/interlocks, SA hardware encoding, FPU/control and
+broader system work remain. #17 and #4 stay open.

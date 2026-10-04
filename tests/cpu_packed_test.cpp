@@ -132,7 +132,7 @@ void immediate_shifts() {
         }
         execute(memory, cpu, mmi(fn, 1, 0, 0, 3), initial_state(), 3, {});
     }
-    for (auto instruction : {mmi(9, 17), mmi(41, 17), mmi(40, 0)}) {
+    for (auto instruction : {mmi(9, 1), mmi(41, 17), mmi(40, 0)}) {
         memory.write(0, 4, instruction); cpu.reset();
         check(cpu.step(memory).stop.has_value(), "unimplemented neighboring MMI operation accepted");
     }

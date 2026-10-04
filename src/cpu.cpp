@@ -549,6 +549,55 @@ InstructionTrace Cpu::step(Memory& memory) {
             }
             switch (function) {
             case 9: case 41: { // MMI2/MMI3.
+                if (function == 9 && (shift == 16 || shift == 17 || shift == 20 || shift == 21 || shift == 28)) {
+                    std::array<std::uint32_t, 8> products{};
+                    for (unsigned n = 0; n < 8; ++n) {
+                        const auto left = n < 4 ? a : state_.gpr[rs].high;
+                        const auto right = n < 4 ? b : state_.gpr[rt].high;
+                        const auto signed_half = [](std::uint64_t value) {
+                            return static_cast<std::int64_t>(value & 0x7fffU) -
+                                static_cast<std::int64_t>(value & 0x8000U);
+                        };
+                        products[n] = static_cast<std::uint32_t>(signed_half(left >> ((n % 4) * 16U)) *
+                            signed_half(right >> ((n % 4) * 16U)));
+                    }
+                    Register128 result;
+                    for (unsigned pair = 0; pair < 4; ++pair) {
+                        const auto old = pair == 0 ? state_.lo.low : pair == 1 ? state_.hi.low :
+                            pair == 2 ? state_.lo.high : state_.hi.high;
+                        auto low = products[pair * 2], high = products[pair * 2 + 1];
+                        if (shift == 16) { low += static_cast<std::uint32_t>(old); high += static_cast<std::uint32_t>(old >> 32U); }
+                        else if (shift == 20) { low = static_cast<std::uint32_t>(old) - low; high = static_cast<std::uint32_t>(old >> 32U) - high; }
+                        else if (shift == 17) low += high;
+                        else if (shift == 21) { low = high - low; high = ~high; }
+                        // Horizontal upper words follow published hardware results;
+                        // the instruction manual leaves these words undefined.
+                        auto& target = pair == 0 ? next.lo.low : pair == 1 ? next.hi.low :
+                            pair == 2 ? next.lo.high : next.hi.high;
+                        target = (std::uint64_t{high} << 32U) | low;
+                        (pair < 2 ? result.low : result.high) |= std::uint64_t{low} << ((pair % 2) * 32U);
+                    }
+                    if (rd != 0) next.gpr[rd] = result;
+                    break;
+                }
+                if (function == 9 && shift == 29) { // PDIVBW broadcasts the signed low halfword.
+                    if (rd != 0) return unsupported();
+                    const auto divisor = static_cast<std::int64_t>(b & 0x7fffU) - static_cast<std::int64_t>(b & 0x8000U);
+                    Register128 quotients, remainders;
+                    for (unsigned n = 0; n < 4; ++n) {
+                        const auto source = n < 2 ? a : state_.gpr[rs].high;
+                        const auto word = static_cast<std::uint32_t>(source >> ((n % 2) * 32U));
+                        const auto dividend = static_cast<std::int64_t>(word) - ((word & 0x80000000U) ? 0x100000000LL : 0LL);
+                        // Wide division handles INT32_MIN/-1 without host overflow.
+                        // Zero-divisor results are corroborated by published PS2 tests.
+                        const auto q = divisor == 0 ? (dividend < 0 ? 1LL : -1LL) : dividend / divisor;
+                        const auto r = divisor == 0 ? dividend : dividend % divisor;
+                        (n < 2 ? quotients.low : quotients.high) |= std::uint64_t{static_cast<std::uint32_t>(q)} << ((n % 2) * 32U);
+                        (n < 2 ? remainders.low : remainders.high) |= std::uint64_t{static_cast<std::uint32_t>(r)} << ((n % 2) * 32U);
+                    }
+                    next.lo = quotients; next.hi = remainders;
+                    break;
+                }
                 if (shift == 8 || shift == 9) { // Full-width HI/LO moves.
                     if (function == 9) {
                         if (rs != 0 || rt != 0) return unsupported();
