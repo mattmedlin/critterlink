@@ -237,15 +237,18 @@ void Cpu::reset(std::uint32_t entry) noexcept {
 }
 void Cpu::reset_boot_vector() noexcept {
     reset(0xbfc00000U);
+    state_.architectural_memory = true;
     state_.cop0.status = 0x00400004U; // BEV and ERL; BEM and Cause.EXC2 clear.
 }
 void Cpu::restore(CpuState state) {
-    if ((state.cop0.status & ~0x20410c07u) != 0) {
+    if ((state.cop0.status & ~0x30410c1fu) != 0) {
         throw std::invalid_argument("unsupported COP0 Status mode in snapshot");
     }
     if ((state.fpu.control & ~0x0083c078U) != 0x01000001U) {
         throw std::invalid_argument("noncanonical FPU control register in snapshot");
     }
+    if ((state.cop0.status & 0x18U) == 0x18U) throw std::invalid_argument("reserved COP0 privilege mode");
+    validate_mmu(state.mmu);
     state.gpr[0] = {};
     state_ = std::move(state);
 }
@@ -259,7 +262,8 @@ InstructionTrace Cpu::step(Memory& memory) {
     state_.cop0.cause = (state_.cop0.cause & ~0xc00u) |
                        (memory.hardware().int0() ? 0x400u : 0u) |
                        (memory.hardware().int1() ? 0x800u : 0u);
-    const auto enter_exception = [&](unsigned code, std::optional<std::uint32_t> bad_address = {}, unsigned coprocessor = 0) {
+    const auto enter_exception = [&](unsigned code, std::optional<std::uint32_t> bad_address = {}, unsigned coprocessor = 0, bool refill = false) {
+        const bool use_refill = refill && (state_.cop0.status & 2U) == 0;
         auto& cop0 = state_.cop0;
         if ((cop0.status & 2u) == 0) {
             cop0.epc = state_.delay_slot ? state_.branch_pc : state_.pc;
@@ -270,7 +274,7 @@ InstructionTrace Cpu::step(Memory& memory) {
         if (bad_address) { cop0.bad_vaddr = *bad_address; }
         cop0.status |= 2u;
         const auto base = (cop0.status & 0x400000u) != 0 ? 0xbfc00200u : 0x80000000u;
-        state_.pc = base + (code == 0 ? 0x200u : 0x180u);
+        state_.pc = base + (use_refill ? 0U : code == 0 ? 0x200u : 0x180u);
         state_.next_pc = state_.pc + 4u;
         state_.delay_slot = false;
         state_.branch_pc = 0;
@@ -300,8 +304,32 @@ InstructionTrace Cpu::step(Memory& memory) {
                     "unsupported instruction or encoding; see docs/cpu-coverage.md");
     };
 
+    const auto translated = [&](std::uint32_t address,unsigned alignment,Access access) {
+        if(address%alignment!=0) throw TranslationFault{access==Access::store?5U:4U,address};
+        Translation result{address};
+        try { if(state_.architectural_memory) result=translate(state_.mmu,state_.cop0.status,address,access); }
+        catch(const std::invalid_argument& error) { throw MemoryFault(MemoryError::translation,access,address,error.what()); }
+        if(state_.architectural_memory && !result.scratchpad && result.address>=0x20000000U)
+            throw MemoryFault(MemoryError::unmapped,access,address,"physical device range is not implemented");
+        return result;
+    };
+    const auto read_memory = [&](std::uint32_t address,unsigned width,Access access=Access::load,bool partial=false) {
+        const auto target=translated(address,partial?1U:width,access);
+        try {
+            return target.scratchpad?memory.read_scratchpad(target.address,width):
+                partial?memory.read_partial(target.address,width):memory.read(target.address,width,access);
+        } catch(MemoryFault& fault) { fault.address=address;throw; }
+    };
+    const auto write_memory = [&](std::uint32_t address,unsigned width,std::uint64_t value,bool partial=false) {
+        const auto target=translated(address,partial?1U:width,Access::store);
+        try {
+            if(target.scratchpad) memory.write_scratchpad(target.address,width,value);
+            else if(partial) memory.write_partial(target.address,width,value);
+            else memory.write(target.address,width,value);
+        } catch(MemoryFault& fault) { fault.address=address;throw; }
+    };
     try {
-        const auto instruction = static_cast<std::uint32_t>(memory.read(state_.pc, 4, Access::fetch));
+        const auto instruction = static_cast<std::uint32_t>(read_memory(state_.pc, 4, Access::fetch));
         trace.instruction = instruction;
         const auto op = instruction >> 26;
         const auto rs = (instruction >> 21) & 31;
@@ -584,6 +612,17 @@ InstructionTrace Cpu::step(Memory& memory) {
             write(rt, sign_extend(immediate << 16, 32));
             break;
         case 16:
+            if (!kernel_mode(state_.cop0.status) && (state_.cop0.status&0x10000000U)==0) return enter_exception(11);
+            if (instruction==0x42000001U || instruction==0x42000002U || instruction==0x42000006U || instruction==0x42000008U) {
+                const auto origin=translated(pc,4,Access::fetch);
+                if(instruction!=0x42000008U && origin.mapped && !origin.global)
+                    throw std::invalid_argument("TLBR/TLBWI/TLBWR require unmapped or global instruction space");
+                if(instruction==0x42000001U) tlb_read(next.mmu);
+                else if(instruction==0x42000002U) tlb_write(next.mmu,next.mmu.index&63U);
+                else if(instruction==0x42000006U) tlb_write(next.mmu,next.mmu.random);
+                else tlb_probe(next.mmu);
+                break;
+            }
             if (instruction == 0x42000018u) { // ERET has no delay slot.
                 if (state_.delay_slot) {
                     return fail(StopKind::delay_slot_branch, "ERET in a delay slot is unsupported");
@@ -596,16 +635,18 @@ InstructionTrace Cpu::step(Memory& memory) {
             }
             if ((rs != 0 && rs != 4) || (instruction & 0x7ffu) != 0) { return unsupported(); }
             if (rs == 4) {
+                if (write_mmu_register(next.mmu,rd,word_b)) break;
                 if (rd == 12) {
-                    // IE/EXL/ERL, IM0/IM1, EIE, BEV, CU1. Other modes remain unsupported.
-                    if ((word_b & ~0x20410c07u) != 0) { return unsupported(); }
+                    // IE/EXL/ERL, KSU, IM0/IM1, EIE, BEV, CU0/CU1.
+                    if ((word_b & ~0x30410c1fu) != 0 || (word_b&0x18U)==0x18U) { return unsupported(); }
                     next.cop0.status = word_b;
                 } else if (rd == 14) { next.cop0.epc = word_b; }
                 else if (rd == 30) { next.cop0.error_epc = word_b; }
                 else { return unsupported(); }
                 break;
             }
-            if (rd == 8) { write(rt, sign_extend(state_.cop0.bad_vaddr, 32)); }
+            if (const auto value=read_mmu_register(state_.mmu,rd)) { write(rt,sign_extend(*value,32)); }
+            else if (rd == 8) { write(rt, sign_extend(state_.cop0.bad_vaddr, 32)); }
             else if (rd == 12) { write(rt, sign_extend(state_.cop0.status, 32)); }
             else if (rd == 13) { write(rt, sign_extend(state_.cop0.cause, 32)); }
             else if (rd == 14) { write(rt, sign_extend(state_.cop0.epc, 32)); }
@@ -735,8 +776,8 @@ InstructionTrace Cpu::step(Memory& memory) {
         case 49: case 57: { // LWC1/SWC1 transfer raw bits, including FPR0.
             if ((state_.cop0.status & 0x20000000U) == 0) return enter_exception(11, {}, 1);
             const auto address = word_a + static_cast<std::uint32_t>(signed_immediate);
-            if (op == 49) next.fpu.fpr[rt] = static_cast<std::uint32_t>(memory.read(address, 4));
-            else memory.write(address, 4, state_.fpu.fpr[rt]);
+            if (op == 49) next.fpu.fpr[rt] = static_cast<std::uint32_t>(read_memory(address, 4));
+            else write_memory(address, 4, state_.fpu.fpr[rt]);
             break;
         }
         case 28:
@@ -991,14 +1032,14 @@ InstructionTrace Cpu::step(Memory& memory) {
             const auto amount = left ? (width - count) * 8U : 0U;
             try {
                 if (load) {
-                    const auto loaded = memory.read_partial(start, count);
+                    const auto loaded = read_memory(start, count, Access::load, true);
                     const auto mask = count == 8 ? ~std::uint64_t{0} : (std::uint64_t{1} << (count * 8U)) - 1U;
                     auto value = (b & ~(mask << amount)) | (loaded << amount);
                     // LWR preserves bits 63..32 unless the complete word is loaded.
                     if (width == 4 && (left || byte == 0)) value = sign_extend(value, 32);
                     write(rt, value);
                 } else {
-                    memory.write_partial(start, count, b >> amount);
+                    write_memory(start, count, b >> amount, true);
                 }
             } catch (const MemoryFault& fault) {
                 // Byte-enabled access starts may differ from the instruction's effective address.
@@ -1009,17 +1050,28 @@ InstructionTrace Cpu::step(Memory& memory) {
         case 30: case 31: {
             const auto address = (word_a + static_cast<std::uint32_t>(signed_immediate)) & ~0xfU;
             if (op == 30) {
-                const auto value = memory.read_quadword(address);
+                const auto target=translated(address,16,Access::load);
+                std::array<std::uint64_t,2> value{};
+                try {
+                    value=target.scratchpad?std::array<std::uint64_t,2>{memory.read_scratchpad(target.address,8),memory.read_scratchpad(target.address+8,8)}:
+                        memory.read_quadword(target.address);
+                } catch(MemoryFault& fault) { fault.address=address;throw; }
                 if (rt != 0) next.gpr[rt] = {value[0], value[1]};
             } else {
-                memory.write_quadword(address, {b, state_.gpr[rt].high});
+                const auto target=translated(address,16,Access::store);
+                try {
+                    if(target.scratchpad) {
+                        memory.write_scratchpad(target.address,8,b);
+                        memory.write_scratchpad(target.address+8,8,state_.gpr[rt].high);
+                    } else memory.write_quadword(target.address,{b,state_.gpr[rt].high});
+                } catch(MemoryFault& fault) { fault.address=address;throw; }
             }
             break;
         }
         case 32: case 33: case 35: case 36: case 37: case 39: case 55: {
             const auto address = word_a + static_cast<std::uint32_t>(signed_immediate);
             const unsigned width = op == 32 || op == 36 ? 1 : op == 33 || op == 37 ? 2 : op == 55 ? 8 : 4;
-            auto value = memory.read(address, width);
+            auto value = read_memory(address, width);
             if (op == 32 || op == 33 || op == 35) { value = sign_extend(value, width * 8); }
             write(rt, value);
             break;
@@ -1027,7 +1079,7 @@ InstructionTrace Cpu::step(Memory& memory) {
         case 40: case 41: case 43: case 63: {
             const auto address = word_a + static_cast<std::uint32_t>(signed_immediate);
             const unsigned width = op == 40 ? 1 : op == 41 ? 2 : op == 43 ? 4 : 8;
-            memory.write(address, width, b);
+            write_memory(address, width, b);
             break;
         }
         case 51:
@@ -1037,9 +1089,18 @@ InstructionTrace Cpu::step(Memory& memory) {
             break;
         default: return unsupported();
         }
+        if(next.architectural_memory && !(op==16 && rs==4 && rd==6)) advance_random(next.mmu);
         state_ = std::move(next);
         trace.retired = true;
         return trace;
+    } catch (const TranslationFault& fault) {
+        if(fault.code<=3) {
+            state_.mmu.context=(state_.mmu.context&0xff800000U)|((fault.address>>9U)&0x007ffff0U);
+            state_.mmu.hi=(fault.address&0xffffe000U)|(state_.mmu.hi&0xffU);
+        }
+        return enter_exception(fault.code,fault.address,0,fault.refill);
+    } catch (const std::invalid_argument& error) {
+        return fail(StopKind::unsupported_instruction,error.what());
     } catch (const MemoryStall&) {
         trace.stalled = true;
         return trace;

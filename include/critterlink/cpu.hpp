@@ -1,6 +1,7 @@
 #pragma once
 
 #include "critterlink/memory.hpp"
+#include "critterlink/mmu.hpp"
 
 #include <array>
 #include <cstdint>
@@ -26,7 +27,7 @@ struct CpuStop {
     bool operator==(const CpuStop&) const = default;
 };
 
-// Kernel diagnostic subset; see docs/interrupts.md for supported Status bits.
+// Implemented COP0 exception/control subset; MMU registers live in MmuState.
 struct Cop0State {
     std::uint32_t bad_vaddr{};
     std::uint32_t cause{};
@@ -54,6 +55,10 @@ struct CpuState {
     std::uint32_t branch_pc{};
     Cop0State cop0{};
     FpuState fpu{};
+    MmuState mmu{};
+    // Boot-vector execution uses architectural translation. Original fixtures opt
+    // into the existing flat bootstrap profile through the default reset API.
+    bool architectural_memory{};
     std::optional<CpuStop> stop;
     bool operator==(const CpuState&) const = default;
 };

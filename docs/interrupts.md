@@ -1,16 +1,18 @@
 # COP0 and guest exception dispatch
 
 Issue #10 adds a kernel-only diagnostic exception path to the scalar CPU.
-It does not add a BIOS, TLB, privilege enforcement, or full COP0 implementation.
+The later [MMU extension](mmu.md) adds TLB/privilege behavior; full COP0 and BIOS
+boot remain incomplete.
 
 ## Register and entry contract
 
-MFC0 reads BadVAddr (8), Status (12), Cause (13), EPC (14), and ErrorEPC (30),
-sign-extending the word into the low scalar lane. MTC0 writes Status, EPC, and
-ErrorEPC. Cause and BadVAddr are read-only in this subset. Noncanonical encodings
+MFC0 reads BadVAddr (8), Status (12), Cause (13), EPC (14), ErrorEPC (30),
+and the [MMU registers](mmu.md),
+sign-extending the word into the low scalar lane. MTC0 writes Status, EPC, ErrorEPC and writable MMU registers. Cause and BadVAddr are read-only in this subset. Noncanonical encodings
 and unsupported registers fail explicitly. Supported Status bits are IE (0),
-EXL (1), ERL (2), IM0/IM1 (10/11), EIE (16), BEV (22), and CU1 (29). Writes and snapshots
-with other Status bits are rejected; user/supervisor modes, Count/Compare,
+EXL (1), ERL (2), KSU (4:3), IM0/IM1 (10/11), EIE (16), BEV (22), CU0 (28),
+and CU1 (29). Writes and snapshots with other Status bits or reserved KSU=3 are
+rejected. Count/Compare,
 performance interrupts, EI/DI and other COP0 operations remain unsupported.
 Synthetic `reset(entry)` starts with Status zero. `reset_boot_vector()` sets
 BEV/ERL and enters boot ROM, but does not initialize the unimplemented reset
@@ -47,8 +49,9 @@ BEV vectors execute from loaded boot ROM. If the required ROM bytes are absent,
 fetching a BEV handler stops as unsupported access. An original ROM guest tests
 syscall entry and handler execution; this does not establish real firmware boot.
 
-Unimplemented instructions and translation/devices are emulator limitations:
-they still produce sticky host stops, not invented guest exceptions. Ordinary
+TLB misses/invalid/modified and privilege faults dispatch guest exceptions in
+architectural mode; see [MMU](mmu.md). Unimplemented instructions/devices and
+undefined TLB configurations still produce sticky host stops. Ordinary
 guest exceptions produce trace entries with an exception code and no host stop.
 
 ## Budgets, timing and restoration

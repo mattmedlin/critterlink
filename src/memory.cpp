@@ -136,10 +136,23 @@ void Memory::write(std::uint32_t address, unsigned width, std::uint64_t value) {
     }
 }
 
+std::uint64_t Memory::read_scratchpad(std::uint32_t offset,unsigned count) const {
+    if(count==0 || count>8 || offset>=scratchpad_.size() || count>scratchpad_.size()-offset)
+        throw std::invalid_argument("scratchpad byte range is outside 16 KiB");
+    std::uint64_t result=0;
+    for(unsigned n=0;n<count;++n) result|=std::uint64_t{scratchpad_[offset+n]}<<(8*n);
+    return result;
+}
+void Memory::write_scratchpad(std::uint32_t offset,unsigned count,std::uint64_t value) {
+    if(count==0 || count>8 || offset>=scratchpad_.size() || count>scratchpad_.size()-offset)
+        throw std::invalid_argument("scratchpad byte range is outside 16 KiB");
+    for(unsigned n=0;n<count;++n) scratchpad_[offset+n]=static_cast<std::uint8_t>(value>>(8*n));
+}
+
 void Memory::clear() noexcept { std::fill(ram_.begin(), ram_.end(), std::uint8_t{0}); }
 std::span<const std::uint8_t> Memory::bytes() const noexcept { return ram_; }
 
-MemoryState Memory::state() const { return {ram_, hardware_.state(), boot_rom_}; }
+MemoryState Memory::state() const { return {ram_, hardware_.state(), boot_rom_, scratchpad_}; }
 void Memory::restore(const MemoryState& state) {
     if (state.ram.size() != ram_size) { throw std::invalid_argument("snapshot RAM must contain exactly 32 MiB"); }
     if (state.boot_rom.size() > boot_rom_max_size) { throw std::invalid_argument("snapshot boot ROM exceeds 4 MiB"); }
@@ -147,6 +160,7 @@ void Memory::restore(const MemoryState& state) {
     auto replacement_ram = state.ram;
     Hardware replacement_hardware = hardware_;
     replacement_hardware.restore(state.hardware);
+    scratchpad_ = state.scratchpad;
     boot_rom_ = std::move(replacement_rom);
     ram_ = std::move(replacement_ram);
     hardware_ = std::move(replacement_hardware);

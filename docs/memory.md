@@ -15,14 +15,14 @@ p. 20, gives the external physical map and boot ROM window
 
 | Area | Current behavior | Required work |
 | --- | --- | --- |
-| Main RAM | 32 MiB, little endian, aligned and partial access validation; low virtual addresses are a synthetic identity window | Separate physical decoding from architectural translation and privilege checks; independently establish mirrored/reserved behavior |
-| KSEG0/KSEG1 | `0x80000000–0xbfffffff` aliases physical low 512 MiB | Enforce kernel accessibility and cache attributes; KSEG0 cache mode comes from Config.K0, KSEG1 is uncached |
-| KUSEG | Diagnostic low-RAM identity access | ERL=1 kernel accesses map directly; ERL=0 accesses require TLB translation |
-| KSSEG/KSEG3 | Explicit unsupported translation stop | ASID/TLB lookup, privilege permissions and cache attributes |
-| Boot ROM | Host byte loading, reads/fetches at `0x1fc00000` and kernel aliases, explicit unsupported writes, snapshots | Architectural translation/privilege controls and IOP ROM visibility remain |
-| Reset | Diagnostic reset remains available; `reset_boot_vector` enters `0xbfc00000`, sets ERL/BEV and clears BEM/Cause.EXC2 in the implemented subset | Initialize documented Config, Random/Wired, cache and debug-control fields as those registers are added; coordinate IOP/device reset |
-| Scratchpad | None | 16 KiB, selected by TLB EntryLo0.S, mapped on a 16-KiB boundary; preserve bytes in snapshots and integrate DMA access |
-| TLB | None | 48 entries, architectural registers/operations, ASID/global matching, page masks, valid/dirty exceptions, scratchpad restrictions and replacement state |
+| Main RAM | 32 MiB, little endian, aligned and partial accesses; architectural CPU translation or explicit diagnostic identity profile | Independently establish mirrored/reserved behavior and full bus-error decode |
+| KSEG0/KSEG1 | `0x80000000–0xbfffffff` maps physical low 512 MiB in kernel mode | Implement cache attributes; KSEG0 cache mode comes from Config.K0, KSEG1 is uncached |
+| KUSEG | ERL=1 kernel identity access; ERL=0 TLB translation in architectural mode | Cache/timing fidelity |
+| KSSEG/KSEG3 | ASID/TLB lookup and privilege permissions | Cache attributes and timing |
+| Boot ROM | Host byte loading, reads/fetches at `0x1fc00000` and kernel aliases, explicit unsupported writes, snapshots | IOP ROM visibility and bus-write semantics remain |
+| Reset | Diagnostic reset remains available; `reset_boot_vector` enters `0xbfc00000`, sets ERL/BEV and clears BEM/Cause.EXC2 in the implemented subset | Random/Wired initialized to 47/0; Config, cache and debug-control reset still required; coordinate IOP/device reset |
+| Scratchpad | 16 KiB selected by TLB EntryLo0.S, mapped on a 16-KiB boundary; CPU scalar/partial/quadword data paths and snapshots | Scratchpad DMA, contention, and instruction-fetch behavior |
+| TLB | 48 entries, register transfers, TLBR/TLBWI/TLBWR/TLBP, ASID/global matching, seven page sizes, valid/dirty exceptions and replacement state | Physical-cycle Random timing, pipeline hazards and independent hardware conformance |
 | Caches | None | I/D cache data/tags, CACHE operations, Config controls, reset invalidation and required visibility behavior |
 | MMIO | Explicit documented device subsets | Complete device windows and access-width policies; retain explicit stops for unimplemented hardware |
 | Bus errors | Unsupported accesses stop the emulator | Distinguish actual guest bus errors from missing implementation using documented physical decode rules |
@@ -66,8 +66,9 @@ physical `0x1fc00000`. Smaller images are useful for original fixtures; missing
 bytes are unmapped, not zero-filled or mirrored. Byte/halfword/word/doubleword,
 partial and quadword reads are little endian. KSEG0/KSEG1 aliases start at
 `0x9fc00000`/`0xbfc00000`. Like the existing diagnostic MMIO API, the canonical
-physical address is also accepted directly. This does not implement arbitrary
-virtual translation or kernel privilege enforcement.
+physical address is also accepted by host Memory calls. Boot-vector CPU execution
+now performs [architectural translation and privilege checks](mmu.md) before those
+physical accesses; direct-initialization fixtures retain their explicit flat profile.
 
 Writes stop explicitly as unsupported; the policy is not a claim about ignored
 physical ROM bus writes. Alignment errors retain priority, and the complete
@@ -80,9 +81,10 @@ other invalid snapshot fields reject before committing any replacement state.
 `Cpu::reset_boot_vector()` initializes the existing CPU state deterministically,
 sets PC/next-PC to `0xbfc00000`/`0xbfc00004`, and sets Status to `0x00400004`
 (BEV/ERL). Other implemented fields are zero except fixed FCR bits. This is
-**not complete hardware reset**: Config/TLB replacement/cache/debug registers,
+**not complete hardware reset**: Config/cache/debug registers,
 IOP firmware execution and other device reset behavior remain unimplemented.
-`Cpu::reset(entry)` retains its diagnostic Status=0 behavior.
+Random/Wired initialize to 47/0. `Cpu::reset(entry)` retains its diagnostic
+Status=0 and flat-address behavior; `reset_boot_vector` enables translation.
 
 The CLI constructs a fresh System, loads supplied bytes, calls the boot-vector
 entry API and runs a bounded number of existing system boundaries:

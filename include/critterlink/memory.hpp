@@ -28,10 +28,12 @@ struct MemoryState {
     std::vector<std::uint8_t> ram;
     HardwareState hardware;
     std::vector<std::uint8_t> boot_rom;
+    std::array<std::uint8_t,16384> scratchpad{};
     bool operator==(const MemoryState&) const = default;
 };
 
-// Bootstrap RAM, boot ROM and supported EE MMIO. No TLB/cache implementation.
+// Physical backing plus legacy diagnostic aliases. CPU owns TLB translation;
+// cache behavior is not yet implemented.
 class Memory {
 public:
     static constexpr std::size_t ram_size = 32 * 1024 * 1024;
@@ -51,6 +53,9 @@ public:
     // EE LQ/SQ mask the effective address in the CPU.
     std::array<std::uint64_t, 2> read_quadword(std::uint32_t address) const;
     void write_quadword(std::uint32_t address, const std::array<std::uint64_t, 2>& value);
+    // Byte-enabled scratchpad backing. CPU alignment/translation is checked separately.
+    std::uint64_t read_scratchpad(std::uint32_t offset,unsigned count) const;
+    void write_scratchpad(std::uint32_t offset,unsigned count,std::uint64_t value);
     void clear() noexcept;
     std::span<const std::uint8_t> bytes() const noexcept;
     void advance(std::uint64_t ticks) { hardware_.advance(ticks, ram_); }
@@ -68,6 +73,7 @@ private:
     Region resolve_range(std::uint32_t address, unsigned count, Access access) const;
     std::vector<std::uint8_t> ram_;
     std::vector<std::uint8_t> boot_rom_;
+    std::array<std::uint8_t,16384> scratchpad_{};
     Hardware hardware_;
 };
 

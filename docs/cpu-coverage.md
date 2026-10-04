@@ -101,14 +101,16 @@ operations. Unimplemented instructions stop explicitly.
 
 ## Memory and exception staging
 
-The bus owns 32 MiB of zero-initialized RAM. Addresses `0x00000000–0x01ffffff`
-are a **synthetic identity-mapped bootstrap window**, not an implemented user
-TLB. Kernel aliases `0x80000000–0x81ffffff` and `0xa0000000–0xa1ffffff` share
+The bus owns 32 MiB of zero-initialized RAM. The default diagnostic CPU profile uses addresses `0x00000000–0x01ffffff`
+as a **synthetic identity-mapped bootstrap window**. Boot-vector execution instead
+enables [architectural TLB translation and privilege checks](mmu.md). Kernel aliases `0x80000000–0x81ffffff` and `0xa0000000–0xa1ffffff` share
 those bytes via direct translation. Cache attributes and privilege permissions
-are not modeled. Host-loaded boot ROM is also readable at physical `0x1fc00000`
+are not modeled in the flat diagnostic profile. Architectural mode enforces
+privilege but still bypasses caches. Host-loaded boot ROM is also readable at physical `0x1fc00000`
 and its two kernel aliases; see [memory/reset](memory.md). Other kernel direct-map
 addresses fail as unimplemented memory or devices; other virtual addresses fail
-as unsupported translation. There is no arbitrary masking into memory, scratchpad,
+as unsupported translation in the flat profile. Architectural mode dispatches
+TLB exceptions for missing/invalid/clean mappings. There is no arbitrary masking into memory, scratchpad,
 or RAM mirroring.
 Milestone 4 adds explicit timer/INTC/GIF-DMA MMIO within the EE hardware window;
 other registers still fail. See [the register profile](hardware-plan.md).

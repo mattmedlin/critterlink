@@ -144,7 +144,7 @@ void test_dispatch() {
     check(restored.state().gpr[0] == Register128{}, "restore lost hardwired zero");
     const auto before_invalid = restored.state();
     auto invalid = before_invalid;
-    invalid.cop0.status |= 0x10u; // unsupported privilege mode
+    invalid.cop0.status |= 0x18u; // reserved privilege mode
     bool rejected = false;
     try { restored.restore(invalid); } catch (const std::invalid_argument&) { rejected = true; }
     check(rejected && restored.state() == before_invalid, "unsupported Status snapshot was not atomic");
