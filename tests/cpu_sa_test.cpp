@@ -59,7 +59,7 @@ void hardware_tokens() {
     for(auto input:inputs) {
         memory.write(0,4,mtsa(1));memory.write(4,4,0);memory.write(8,4,0);memory.write(12,4,0);memory.write(16,4,mfsa(2));
         CpuState before;before.gpr[1]={input,~0ULL};before.gpr[2]={~0ULL,0x1234abcd};cpu.restore(before);
-        auto expected=before;expected.pc=20;expected.next_pc=24;expected.sa=(input&15U)*8U;expected.gpr[2].low=input&15U;
+        auto expected=before;expected.pc=20;expected.next_pc=24;expected.cop0.count=5;expected.sa=(input&15U)*8U;expected.gpr[2].low=input&15U;
         check(cpu.run(memory,5)==RunResult{5,true} && cpu.state()==expected,"hardware MTSA/MFSA masking");
     }
     for(bool halfword:{false,true}) for(unsigned value=0;value<32;++value) {

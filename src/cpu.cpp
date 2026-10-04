@@ -241,7 +241,7 @@ void Cpu::reset_boot_vector() noexcept {
     state_.cop0.status = 0x00400004U; // BEV and ERL; BEM and Cause.EXC2 clear.
 }
 void Cpu::restore(CpuState state) {
-    if ((state.cop0.status & ~0x30410c1fu) != 0) {
+    if ((state.cop0.status & ~0x30478c1fu) != 0) {
         throw std::invalid_argument("unsupported COP0 Status mode in snapshot");
     }
     if ((state.fpu.control & ~0x0083c078U) != 0x01000001U) {
@@ -252,6 +252,16 @@ void Cpu::restore(CpuState state) {
     validate_cache(state.cache);
     state.gpr[0] = {};
     state_ = std::move(state);
+}
+
+void Cpu::advance_cycles(std::uint64_t cycles) noexcept {
+    auto& c=state_.cop0;
+    // Compare latches on a counter increment that reaches equality, including wrap.
+    // A full 2^32-cycle period reaches every value even if the endpoints coincide.
+    const auto distance=static_cast<std::uint32_t>(c.compare-c.count);
+    const std::uint64_t until_match=distance==0?(std::uint64_t{1}<<32U):distance;
+    if(cycles>=until_match) c.cause|=0x8000U;
+    c.count+=static_cast<std::uint32_t>(cycles);
 }
 
 InstructionTrace Cpu::step(Memory& memory) {
@@ -284,7 +294,7 @@ InstructionTrace Cpu::step(Memory& memory) {
         return trace;
     };
     if ((state_.cop0.status & 0x10007u) == 0x10001u &&
-        (state_.cop0.status & state_.cop0.cause & 0xc00u) != 0) {
+        (state_.cop0.status & state_.cop0.cause & 0x8c00u) != 0) {
         return enter_exception(0);
     }
     const auto fail = [&](StopKind kind, const std::string& reason,
@@ -629,6 +639,12 @@ InstructionTrace Cpu::step(Memory& memory) {
             write(rt, sign_extend(immediate << 16, 32));
             break;
         case 16:
+            // EI/DI have their own privilege rule and do not raise CU0 unusable.
+            if(instruction==0x42000038U || instruction==0x42000039U) {
+                if(kernel_mode(state_.cop0.status) || (state_.cop0.status&0x20000U)!=0)
+                    next.cop0.status=(next.cop0.status&~0x10000U)|(instruction==0x42000038U?0x10000U:0U);
+                break;
+            }
             if (!kernel_mode(state_.cop0.status) && (state_.cop0.status&0x10000000U)==0) return enter_exception(11);
             if (instruction==0x42000001U || instruction==0x42000002U || instruction==0x42000006U || instruction==0x42000008U) {
                 const auto origin=translated(pc,4,Access::fetch);
@@ -652,19 +668,22 @@ InstructionTrace Cpu::step(Memory& memory) {
             }
             if ((rs != 0 && rs != 4) || (instruction & 0x7ffu) != 0) { return unsupported(); }
             if (rs == 4) {
+                if(rd==9) {next.cop0.count=word_b;break;}
+                if(rd==11) {next.cop0.compare=word_b;next.cop0.cause&=~0x8000U;break;}
                 if(rd==16) {write_config(next.cache,word_b);break;}
                 if(rd==28) {next.cache.tag_lo=word_b;break;}
                 if(rd==29) {next.cache.tag_hi=word_b;break;}
                 if (write_mmu_register(next.mmu,rd,word_b)) break;
                 if (rd == 12) {
-                    // IE/EXL/ERL, KSU, IM0/IM1, EIE, BEV, CU0/CU1.
-                    if ((word_b & ~0x30410c1fu) != 0 || (word_b&0x18U)==0x18U) { return unsupported(); }
+                    // IE/EXL/ERL, KSU, IM0/IM1/IM7, EIE/EDI/CH, BEV, CU0/CU1.
+                    if ((word_b & ~0x30478c1fu) != 0 || (word_b&0x18U)==0x18U) { return unsupported(); }
                     next.cop0.status = word_b;
                 } else if (rd == 14) { next.cop0.epc = word_b; }
                 else if (rd == 30) { next.cop0.error_epc = word_b; }
                 else { return unsupported(); }
                 break;
             }
+            if(rd==9 || rd==11) {write(rt,sign_extend(rd==9?state_.cop0.count:state_.cop0.compare,32));break;}
             if(rd==16) {write(rt,sign_extend(state_.cache.config,32));break;}
             if(rd==28 || rd==29) {write(rt,sign_extend(rd==28?state_.cache.tag_lo:state_.cache.tag_hi,32));break;}
             if (const auto value=read_mmu_register(state_.mmu,rd)) { write(rt,sign_extend(*value,32)); }
@@ -1125,13 +1144,14 @@ InstructionTrace Cpu::step(Memory& memory) {
                 const auto target=translated(address,1,Access::load);
                 if(target.scratchpad || (target.cache_mode!=0 && target.cache_mode!=3))
                     throw std::invalid_argument("hit/fill CACHE operation requires a cached address");
-                cache_operation(next.cache,memory,rt,address,target.address);
+                if(const auto hit=cache_operation(next.cache,memory,rt,address,target.address))
+                    next.cop0.status=(next.cop0.status&~0x40000U)|(*hit?0x40000U:0U);
             }
             break;
         }
         case 51:
             // PREF is a nonfaulting cache hint, including hint values 1..31 on EE.
-            // With no cache model there is nothing to warm. Do not perform a load:
+            // Cache warming remains unimplemented. Do not perform a load:
             // invalid translations are ignored and MMIO must have no read effects.
             break;
         default: return unsupported();
@@ -1169,6 +1189,7 @@ RunResult Cpu::run(Memory& memory, std::uint64_t budget, std::vector<Instruction
         auto entry = step(memory);
         ++steps;
         if (entry.retired) { ++result.retired; }
+        if (entry.retired || entry.exception || entry.stalled) advance_cycles(1);
         if (trace) { trace->push_back(std::move(entry)); }
     }
     result.budget_exhausted = !state_.stop && steps == budget;

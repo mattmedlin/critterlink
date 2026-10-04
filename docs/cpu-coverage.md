@@ -88,7 +88,7 @@ limitation, not a fabricated architectural Reserved Instruction exception.
 | Leading sign count | PLZCW | Two low-word counts minus the sign bit; preserves the upper GPR lane |
 | Hints / ordering | PREF, SYNC, SYNC.L, SYNC.P | Nonfaulting cache hint; barriers in the synchronous interpreter; see contract below |
 | Exception instructions | SYSCALL, BREAK | Dispatch general exception; optional instruction code bits accepted |
-| COP0 kernel subset | MFC0, MTC0, ERET | Status, Cause, EPC, ErrorEPC and exception/interrupt dispatch; see [interrupts.md](interrupts.md) |
+| COP0 subset | MFC0, MTC0, ERET, EI, DI | Status, Cause, EPC, ErrorEPC, Count/Compare and exception/interrupt dispatch; see [interrupts.md](interrupts.md) |
 
 Word operations use low 32-bit operands deterministically; this is not a promise
 to reproduce hardware behavior for noncanonical operands that the architecture

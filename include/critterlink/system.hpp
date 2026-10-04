@@ -15,7 +15,8 @@ struct SystemState {
     bool operator==(const SystemState&) const = default;
 };
 
-// A retired instruction, exception entry or bus stall advances one diagnostic bus tick.
+// A retired instruction, exception entry or bus stall supplies one diagnostic
+// EE cycle and device tick; physical issue/bus ratios remain unmodeled.
 class System {
 public:
     explicit System(std::vector<InputEvent> input = {});

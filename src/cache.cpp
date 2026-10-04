@@ -114,13 +114,13 @@ void cache_write(CacheState& s,Memory& memory,std::uint32_t va,std::uint32_t pa,
 bool cache_index_operation(unsigned op) noexcept {
     return op==0 || op==4 || op==7 || op==0x10 || op==0x11 || op==0x12 || op==0x13 || op==0x14 || op==0x16;
 }
-void cache_operation(CacheState& s,Memory& memory,unsigned op,std::uint32_t va,std::uint32_t pa) {
+std::optional<bool> cache_operation(CacheState& s,Memory& memory,unsigned op,std::uint32_t va,std::uint32_t pa) {
     // Instruction data/steering and BTAC operations remain explicit unsupported paths.
     if(!cache_index_operation(op) && op!=0xb && op!=0xe && op!=0x18 && op!=0x1a && op!=0x1c)
         throw std::invalid_argument("unsupported CACHE operation");
     ensure(s);const bool instruction=op<0x10;auto& lines=instruction?s.instruction:s.data;
     const auto index=set_index(va,instruction);auto& selected=lines[index*2+(va&1U)];
-    if(op==0 || op==0x10) {s.tag_lo=selected.tag;return;}
+    if(op==0 || op==0x10) {s.tag_lo=selected.tag;return {};}
     if(op==4 || op==0x12) {
         auto tag=s.tag_lo&(instruction?0xfffff030U:0xfffff078U);
         if(!instruction) {
@@ -128,23 +128,25 @@ void cache_operation(CacheState& s,Memory& memory,unsigned op,std::uint32_t va,s
             if((tag&locked)!=0 && ((selected.tag&locked)!=0 || (lines[index*2+((va&1U)^1U)].tag&locked)!=0))
                 throw std::invalid_argument("cache re-lock or both-way locking is undefined");
         }
-        selected.tag=tag;return;
+        selected.tag=tag;return {};
     }
-    if(op==7) {selected.tag&=~valid;return;}
+    if(op==7) {selected.tag&=~valid;return {};}
     if(op==0x14) writeback(selected,memory,index);
-    if(op==0x14 || op==0x16) {selected.tag&=~(valid|dirty|locked);return;}
+    if(op==0x14 || op==0x16) {selected.tag&=~(valid|dirty|locked);return {};}
     if(op==0x11 || op==0x13) {
         const auto offset=va&0x3cU;
         if(op==0x11) {
             s.tag_lo=0;for(unsigned n=0;n<4;++n) s.tag_lo|=std::uint32_t{selected.bytes[offset+n]}<<(8*n);
         } else for(unsigned n=0;n<4;++n) selected.bytes[offset+n]=static_cast<std::uint8_t>(s.tag_lo>>(8*n));
-        return;
+        return {};
     }
-    if(op==0xe) {fill(s,memory,va,pa,true,true);return;}
-    const auto found=hit(lines,index,pa);if(found<0) return;
+    if(op==0xe) {fill(s,memory,va,pa,true,true);return {};}
+    const bool report=op==0x18 || op==0x1a;
+    const auto found=hit(lines,index,pa);if(found<0) return report?std::optional<bool>{false}:std::nullopt;
     auto& line=lines[index*2+static_cast<unsigned>(found)];
     if(op==0x18 || op==0x1c) writeback(line,memory,index);
     if(op==0xb) line.tag&=~valid;
     else if(op==0x18 || op==0x1a) line.tag&=~(valid|dirty|locked);
+    return report?std::optional<bool>{true}:std::nullopt;
 }
 } // namespace critterlink

@@ -105,7 +105,7 @@ Tag reads zero unspecified bits. Invalid data tags force Dirty clear, following
 the Core manual's state invariant despite a contradictory DXSTG pseudocode line.
 SYNC barriers remain immediate interpreter boundaries; fixtures include them,
 but pipeline hazards are not modeled. PREF remains a nonfaulting ignored hint.
-Status.CH hit reporting remains unimplemented. IHIN's BTAC side effect is not
+DHIN/DHWBIN update Status.CH from the physical-tag hit; other operations preserve it. IHIN's BTAC side effect is not
 implemented because BTAC is absent. Fourteen of
 the twenty CACHE operations have paths; this count does not mean cache emulation
 or milestone #4 is complete.

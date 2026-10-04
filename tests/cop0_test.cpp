@@ -40,21 +40,20 @@ void test_transfers() {
     }
     const std::array<std::uint32_t, 9> rejected{
         transfer(0, 3, 12) | 1u, transfer(4, 3, 14) | 0x400u,
-        transfer(1, 3, 12), transfer(0, 3, 9), transfer(4, 3, 8),
-        transfer(4, 3, 13), transfer(4, 3, 9), 0x42000019u, transfer(4, 3, 12)};
+        transfer(1, 3, 12), transfer(0, 3, 7), transfer(4, 3, 8),
+        transfer(4, 3, 13), transfer(4, 3, 7), 0x42000019u, transfer(4, 3, 12)};
     for (auto instruction : rejected) {
         memory.write(0, 4, instruction);
         Cpu cpu;
         auto before = cpu.state();
-        before.gpr[3].low = 0x8000; // unsupported Status IM7
+        before.gpr[3].low = 0x1000; // unsupported Status BEM
         before.cop0.epc = 0x100;
         cpu.restore(before);
         const auto result = cpu.step(memory);
-        auto after = cpu.state();
         check(result.stop && result.stop->kind == StopKind::unsupported_instruction && !result.retired,
               "reserved COP0 encoding accepted");
-        after.stop.reset();
-        check(after == before, "unsupported COP0 instruction partially committed");
+        before.stop = result.stop;
+        check(cpu.state() == before, "unsupported COP0 instruction partially committed");
     }
 }
 void test_eret() {

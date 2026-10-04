@@ -95,7 +95,7 @@ barrier is reached. Adding those requires extending the completion contract. See
   guest exceptions. Unsupported translation/devices/opcodes still stop on the
   host; they do not establish architectural RI, TLB or coprocessor exceptions.
 - COP0 access is restricted to selected registers/status bits. Privilege modes,
-  TLB/cache controls, EI/DI, full interrupt control and architectural reset are
+  Remaining TLB/cache conformance, full interrupt control and architectural reset are
   incomplete. Synthetic entry points are not BIOS boot.
 
 ## Next work and dependencies

@@ -39,7 +39,12 @@ RunResult System::run(std::uint64_t budget, std::vector<InstructionTrace>* trace
         auto entry = cpu_.step(memory_);
         ++steps;
         if (entry.retired) { ++result.retired; }
-        if (entry.retired || entry.exception || entry.stalled) { memory_.advance(1); }
+        if (entry.retired || entry.exception || entry.stalled) {
+            // Diagnostic scheduling: one supplied EE cycle and device tick per boundary.
+            // Physical issue/bus ratios are not modeled by this interpreter yet.
+            cpu_.advance_cycles(1);
+            memory_.advance(1);
+        }
         if (trace) { trace->push_back(std::move(entry)); }
     }
     result.budget_exhausted = !cpu_.state().stop && !memory_.hardware().stop() && steps == budget;

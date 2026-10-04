@@ -35,6 +35,7 @@ struct Cop0State {
     std::uint32_t epc{};
     std::uint32_t status{};
     std::uint32_t error_epc{};
+    std::uint32_t count{}, compare{};
     bool operator==(const Cop0State&) const = default;
 };
 
@@ -92,7 +93,10 @@ public:
     void reset_boot_vector() noexcept;
     // Debugger/test state import; enforces r0 and rejects unsupported Status modes.
     void restore(CpuState state);
+    // Executes one boundary without supplying elapsed clock cycles.
     InstructionTrace step(Memory& memory);
+    // Advance the EE clock independently of retirement (including stalls).
+    void advance_cycles(std::uint64_t cycles) noexcept;
     // Budget counts boundaries (including exception entries), not just retirements.
     RunResult run(Memory& memory, std::uint64_t budget,
                   std::vector<InstructionTrace>* trace = nullptr);
