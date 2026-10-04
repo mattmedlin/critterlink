@@ -462,3 +462,28 @@ remain unfinished. #17 and #4 remain open.
 [GitHub Actions run 37162701817](https://github.com/mattmedlin/critterlink/actions/runs/37162701817)
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `2e526fb` without platform-specific repairs.
+
+## Packed HI/LO, word multiply/divide and variable shifts
+
+On October 3, 2026, all 39 suites passed local Apple Silicon Debug, Release and
+ASan/UBSan (121.04, 8.27 and 257.28 seconds respectively). The new
+`cpu_packed_hilo` suite tests full-width PMFHI/PMFLO/PMTHI/PMTLO;
+PMULTW/PMULTUW and PDIVW/PDIVUW; PSLLVW/PSRLVW/PSRAVW. Literal signed and
+unsigned boundary vectors distinguish full products in rd from sign-extended
+HI/LO words. A bit-routing oracle checks every variable shift count and ignored
+source bits. Additional checks cover register aliases/r0, reserved fields,
+noncanonical operands, second-lane failure atomicity and delay/annul behavior.
+An original LQ/multiply/divide/HI-LO-read/SQ guest produces independently expected
+RAM results and identical traces/full-System state after snapshot restoration.
+Existing integrated and CLI expectations passed.
+
+These are manual-based functional expectations, not new physical-hardware
+measurements. Division by zero and signed overflow remain explicit host stops,
+consistent with scalar divide; no guest exception is fabricated. Multiply/divide
+latency is unmodeled. Packed accumulates, halfword operations, formatted HI/LO
+moves, FPU/control and broader hardware behavior remain unfinished. #17 and #4
+remain open. See [CPU coverage](cpu-coverage.md) for exact restrictions.
+
+[GitHub Actions run 37167201054](https://github.com/mattmedlin/critterlink/actions/runs/37167201054)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`c5817f4`. No platform-specific repair was needed.
