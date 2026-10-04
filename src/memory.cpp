@@ -156,11 +156,13 @@ MemoryState Memory::state() const { return {ram_, hardware_.state(), boot_rom_, 
 void Memory::restore(const MemoryState& state) {
     if (state.ram.size() != ram_size) { throw std::invalid_argument("snapshot RAM must contain exactly 32 MiB"); }
     if (state.boot_rom.size() > boot_rom_max_size) { throw std::invalid_argument("snapshot boot ROM exceeds 4 MiB"); }
+    if(state.scratchpad.size()!=16384) throw std::invalid_argument("snapshot scratchpad must contain exactly 16 KiB");
+    auto replacement_scratchpad = state.scratchpad;
     auto replacement_rom = state.boot_rom;
     auto replacement_ram = state.ram;
     Hardware replacement_hardware = hardware_;
     replacement_hardware.restore(state.hardware);
-    scratchpad_ = state.scratchpad;
+    scratchpad_ = std::move(replacement_scratchpad);
     boot_rom_ = std::move(replacement_rom);
     ram_ = std::move(replacement_ram);
     hardware_ = std::move(replacement_hardware);

@@ -185,7 +185,10 @@ void guest() {
     const auto remaining=program.size()-17;check(system.run(remaining,&a).retired==remaining,"TLB guest execution");
     check(system.memory().read(0x2000,4)==0x12345678 && system.memory().read(0x3000,4)==0x12345678 &&
           system.memory().read_scratchpad(0x3ffc,4)==0x12345678 && system.cpu().state().gpr[3].low==0x12345678,"TLB guest independent output");
-    const auto end=system.state();system.restore(saved);system.run(remaining,&b);check(system.state()==end && a==b,"TLB/scratchpad System replay");
+    const auto end=system.state();
+    auto invalid=saved;invalid.memory.scratchpad.pop_back();rejected([&]{system.restore(invalid);});
+    check(system.state()==end,"scratchpad snapshot size rejection is atomic");
+    system.restore(saved);system.run(remaining,&b);check(system.state()==end && a==b,"TLB/scratchpad System replay");
     // Quadword path through a non-default scratchpad virtual mapping.
     auto s=execution();map(s.mmu,0,0x60000000,0x80000016,0x16);s.gpr[1].low=0x60003ff0;s.gpr[2]={0x0123456789abcdefULL,0xfedcba9876543210ULL};
     system.cpu().restore(s);system.memory().write(0x1000,4,0x7c220000);system.memory().write(0x1004,4,0x78230000);

@@ -28,7 +28,7 @@ struct MemoryState {
     std::vector<std::uint8_t> ram;
     HardwareState hardware;
     std::vector<std::uint8_t> boot_rom;
-    std::array<std::uint8_t,16384> scratchpad{};
+    std::vector<std::uint8_t> scratchpad = std::vector<std::uint8_t>(16384);
     bool operator==(const MemoryState&) const = default;
 };
 
@@ -73,7 +73,7 @@ private:
     Region resolve_range(std::uint32_t address, unsigned count, Access access) const;
     std::vector<std::uint8_t> ram_;
     std::vector<std::uint8_t> boot_rom_;
-    std::array<std::uint8_t,16384> scratchpad_{};
+    std::vector<std::uint8_t> scratchpad_ = std::vector<std::uint8_t>(16384);
     Hardware hardware_;
 };
 
