@@ -776,3 +776,29 @@ emulator implementation or proprietary asset was imported. #17 and #4 stay open.
 [GitHub Actions run 37228270881](https://github.com/mattmedlin/critterlink/actions/runs/37228270881)
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `00946d8`. No platform-specific repairs were needed.
+
+## EE FPU division
+
+On October 4, 2026, all 50 local Apple Silicon suites passed Debug, Release and
+ASan/UBSan (158.02, 12.40 and 327.28 seconds respectively) for `dbe39e0`.
+DIV.S uses integer quotient/remainder rounding, preserves finite exponent 255,
+handles signed zero and exponent-zero inputs, saturates/flushes exponent limits,
+and updates current I/D and sticky SI/SD without changing O/U or other state.
+
+Published hardware vectors include 1/3=0x3eaaaaab and 1/1.5=0x3f2aaaab,
+establishing nearest-direction results that ordinary chop arithmetic misses.
+The test suite covers pinned basic vectors, all 65,025 nonzero exponent pairs
+with exact power-of-two operands and both result signs, flags, aliases, CU1,
+delay/annul and original guest RAM/flags output with full-System replay.
+No host floating-point cast or ambient rounding mode participates.
+
+[FPU coverage](fpu.md) cites the primary manual and physical-hardware reports,
+documents the nearest-even model and its conformance limits, and records an
+unresolved RSQRT research result: composing rounded SQRT and DIV misses seven
+published result rows. SQRT/RSQRT remain unsupported pending their implementation;
+no test-operand special cases were added. No new physical-hardware measurements
+were made. Pipeline timing and wider #17/#4 hardware work remain open.
+
+[GitHub Actions run 37229083357](https://github.com/mattmedlin/critterlink/actions/runs/37229083357)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`dbe39e0`. No platform-specific repairs were needed.

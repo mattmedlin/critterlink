@@ -222,6 +222,23 @@ register aliases, CU1 and delay/annul behavior. An original guest stores 1/3,
 a divide-by-zero result and FCR31 to RAM and reproduces full state and traces
 from a System snapshot. Broader physical conformance and timing remain work.
 
+## Remaining divider-unit investigation
+
+A separate integer square-root prototype matches the 21 pinned `sqrt.expected`
+results, including finite exponent 255. The physical 90K report
+[14790](https://github.com/PCSX2/pcsx2/issues/14790) additionally reports +0 and
+I/SI for negative zero and negative exponent-zero inputs, contrary to the
+instruction manual's negative-zero result wording. These facts should anchor
+SQRT.S implementation and flag tests.
+
+RSQRT.S cannot yet be assumed to be DIV.S applied to a stored SQRT.S result.
+That composition misses seven of the 39 pinned `rsqrt` rows: 3/sqrt(3) produces
+0x3fddb3d8 instead of the recorded 0x3fddb3d7, and maximum-magnitude inputs
+produce a final low bit of 3 instead of 2. Rounding the intermediate root upward
+also fails other rows. Determine the combined unit's precision/rounding from
+stronger evidence before declaring this path conformant; do not special-case
+these test operands. This is unfinished investigation, not implemented behavior.
+
 ## COP1 usability and exceptions
 
 COP0 Status.CU1 (bit 29) is now accepted by MTC0 and snapshot restore. The
