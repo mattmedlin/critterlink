@@ -487,3 +487,29 @@ remain open. See [CPU coverage](cpu-coverage.md) for exact restrictions.
 [GitHub Actions run 37167201054](https://github.com/mattmedlin/critterlink/actions/runs/37167201054)
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `c5817f4`. No platform-specific repair was needed.
+
+
+## Packed word accumulates and formatted HI/LO transfers
+
+On October 4, 2026, all 40 suites passed local Apple Silicon Debug, Release and
+ASan/UBSan (124.59, 8.69 and 264.85 seconds respectively). The new
+`cpu_packed_accumulate` suite covers PMADDW/PMADDUW/PMSUBW, five PMFHL
+formats (LW/UW/SLW/LH/SH) and PMTHL.LW. Literal vectors exercise carry, borrow,
+64-bit wraparound, signed/unsigned products and ignored accumulator upper words.
+Every source bit is checked against explicit byte routes for LW/UW/LH; signed
+word/halfword saturation checks include both endpoints and adjacent values.
+PMTHL tests preserved upper words, including an r0 source. Aliases/r0, reserved
+fields/formats, atomic noncanonical-source rejection and delay/annul replay are
+covered. An original guest initializes and repeatedly accumulates, reads and
+stores formatted results, subtracts, and reproduces RAM/state/traces after a
+full-System snapshot restore. Existing integrated and CLI checks passed.
+
+The expectations derive from the primary manual linked in [CPU coverage](cpu-coverage.md),
+not a new physical-hardware run. Word accumulates require canonical source
+halves but accept arbitrary accumulator words. Multiplication timing/interlocks,
+packed halfword multiply/accumulate/divide, FPU/control and broader hardware work
+remain. #17 and #4 stay open.
+
+[GitHub Actions run 37193903916](https://github.com/mattmedlin/critterlink/actions/runs/37193903916)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`5c3677e`. No platform-specific repairs or weakened checks were needed.

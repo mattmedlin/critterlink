@@ -1,6 +1,6 @@
 # EE integer execution audit — issue #16
 
-Audit date: 2026-10-03, updated through packed word accumulates and formatted HI/LO transfers.
+Audit date: 2026-10-04, updated through packed word accumulates and formatted HI/LO transfers.
 This compares the decoder in `src/cpu.cpp` with Sony's EE instruction inventory.
 It is a source review, not a new conformance run. **#16 remains open.**
 
