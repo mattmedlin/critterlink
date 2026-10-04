@@ -540,6 +540,26 @@ InstructionTrace Cpu::step(Memory& memory) {
             break;
         case 17: {
             if ((state_.cop0.status & 0x20000000U) == 0) return enter_exception(11, {}, 1);
+            if (rs == 16 && (function == 48 || function == 50 || function == 52 || function == 54)) {
+                if (shift != 0) return unsupported();
+                // EE exponent-zero inputs are zero; exponent 255 is finite.
+                // Integer ordering avoids importing host IEEE NaN/denormal rules.
+                const auto normalized = [](std::uint32_t bits) {
+                    return (bits & 0x7f800000U) == 0 ? 0U : bits;
+                };
+                const auto left = normalized(state_.fpu.fpr[rd]);
+                const auto right = normalized(state_.fpu.fpr[rt]);
+                const bool equal = left == right;
+                const bool negative_left = (left & 0x80000000U) != 0;
+                const bool negative_right = (right & 0x80000000U) != 0;
+                const bool less = negative_left != negative_right ? negative_left :
+                                  negative_left ? left > right : left < right;
+                const bool condition = function == 50 ? equal : function == 52 ? less :
+                                       function == 54 ? less || equal : false;
+                next.fpu.control = (state_.fpu.control & ~0x00800000U) |
+                                   (condition ? 0x00800000U : 0U);
+                break;
+            }
             if (rs == 8) {
                 if (rt > 3) return unsupported();
                 if (state_.delay_slot) {

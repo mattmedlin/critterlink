@@ -1,6 +1,6 @@
-# EE floating-point register, control and branch support
+# EE floating-point register, control, branch and comparison support
 
-This implements COP1 register transport, conditional branches and access control, not floating-point
+This implements COP1 register transport, conditional branches, comparisons and access control, not floating-point
 arithmetic. All FPR values are raw 32-bit patterns; no host floating-point
 conversion, NaN canonicalization or rounding is involved.
 
@@ -23,7 +23,7 @@ Invalid FCR31 snapshot fixed bits reject before replacing live CPU state.
 
 Transfer encodings require bits 10–0 to be zero. FCR selectors other than 0 and
 31 remain explicit unsupported stops, even though published hardware tests show
-read aliases. Arithmetic, comparisons, conversions and accumulator
+read aliases. Arithmetic, conversions and accumulator
 instructions remain unsupported when CU1 is enabled.
 
 FCR0 is fixed to implementation/revision 0x00002e30, the profile observed in the
@@ -60,6 +60,30 @@ An original guest sets C through CTC1, exercises taken/fallthrough/annulled path
 saves a literal result to RAM and replays from a pending branch checkpoint.
 These implement architectural boundary behavior, not FPU pipeline latency.
 Primary reference: the instruction manual, printed pages 345–348.
+
+## Comparisons
+
+C.F.S, C.EQ.S, C.LT.S and C.LE.S update only FCR31.C. FPRs, ACC, current
+exception flags and sticky flags are preserved. C.F.S always clears C. Both zero
+signs compare equal. All exponent-zero inputs compare as zero; exponent 255 is
+finite in the EE format, so IEEE NaN/infinity rules do not apply. Nonzero values
+are ordered by sign and exponent/fraction magnitude using integer operations,
+without host floating-point conversions. The destination/reserved field must be
+zero; other comparison functions remain unsupported. CU1, delay/annul and
+exception behavior use the same interpreter rules as register operations.
+
+The primary EE Core manual, printed page 156, defines exponent-zero values as
+signed zero and exponents 1–255 as finite. Instruction pages 349–352 define the
+four comparisons and their C-only result. Published
+[comparison outputs](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/ee_fpu/compare.expected)
+and [test definitions](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/ee_fpu/compare.cpp)
+corroborate signed zeros, exponent-zero flushing and distinct ordered
+exponent-255 fractions. The regression suite uses independently ordered value
+groups covering these examples and both signs, all register pairs, both initial
+C values, full-state preservation, disabled exceptions, delay/annul/replay and
+reserved encodings. An original compare/branch guest saves literal flags and
+slot-count results to RAM and replays through System snapshots. No new physical
+hardware measurements or pipeline timing claims are made.
 
 ## COP1 usability and exceptions
 
