@@ -108,6 +108,17 @@ void replay() {
     system.restore(saved);system.run(1,&b);system.run(3,&b);
     check(system.state()==end && a==b,"UCAB full System checkpoint replay");
 }
+void fifo_retry() {
+    Memory memory;Cpu cpu;auto s=initial();memory.write(0x200,4,42);run(cpu,memory,s,op(35));s=cpu.state();
+    memory.write(0x10003000,4,8);
+    for(unsigned n=0;n<16;++n) memory.write_quadword(0x10006000,{0x1000000000008000ULL,14});
+    s.pc=0xa0001000;s.next_pc=s.pc+4;s.gpr[1].low=0xb0006000;s.gpr[2]={0x1000000000008000ULL,14};
+    memory.write(0x1000,4,op(31));cpu.restore(s);const auto before=memory.state();
+    const auto trace=cpu.step(memory);
+    check(trace.stalled && !trace.retired && cpu.state()==s && memory.state()==before,"full FIFO retry preserves resident UCAB");
+    memory.write(0x10003000,4,0);memory.advance(1);
+    check(cpu.step(memory).retired && !cpu.state().cache.accelerated.valid,"accepted retried SQ invalidates UCAB");
 }
-int main(){try{buffer();loads();invalidation();replay();std::cout<<"Accelerated read-buffer tests passed\n";}
+}
+int main(){try{buffer();loads();invalidation();replay();fifo_retry();std::cout<<"Accelerated read-buffer tests passed\n";}
 catch(const std::exception& error){std::cerr<<error.what()<<'\n';return 1;}}
