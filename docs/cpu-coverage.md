@@ -105,14 +105,16 @@ The bus owns 32 MiB of zero-initialized RAM. Addresses `0x00000000–0x01ffffff`
 are a **synthetic identity-mapped bootstrap window**, not an implemented user
 TLB. Kernel aliases `0x80000000–0x81ffffff` and `0xa0000000–0xa1ffffff` share
 those bytes via direct translation. Cache attributes and privilege permissions
-are not modeled. Other kernel direct-map addresses fail as unimplemented memory
-or devices; other virtual addresses fail as unsupported translation. There is
-no arbitrary address masking into RAM, BIOS, scratchpad, or RAM mirroring.
+are not modeled. Host-loaded boot ROM is also readable at physical `0x1fc00000`
+and its two kernel aliases; see [memory/reset](memory.md). Other kernel direct-map
+addresses fail as unimplemented memory or devices; other virtual addresses fail
+as unsupported translation. There is no arbitrary masking into memory, scratchpad,
+or RAM mirroring.
 Milestone 4 adds explicit timer/INTC/GIF-DMA MMIO within the EE hardware window;
 other registers still fail. See [the register profile](hardware-plan.md).
 
-The scalar bus accepts widths 1, 2, 4, and 8. Separate RAM APIs support selected
-byte ranges and aligned 16-byte quadwords. Each store validates its entire range
+The scalar bus accepts widths 1, 2, 4, and 8. Separate memory APIs support selected
+byte ranges and aligned 16-byte quadwords. ROM supports reads only. Each store validates its entire range
 before writing, and all transfers explicitly assemble little-endian values
 without host pointer casts. Effective addresses wrap at 32 bits. Loads to r0 still perform
 access checks. Host calls with invalid widths throw `std::invalid_argument`;

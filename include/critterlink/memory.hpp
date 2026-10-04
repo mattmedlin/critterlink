@@ -47,7 +47,7 @@ public:
     // Byte-enabled memory accesses; validate the entire range before writing.
     std::uint64_t read_partial(std::uint32_t address, unsigned count) const;
     void write_partial(std::uint32_t address, unsigned count, std::uint64_t value);
-    // Aligned RAM accesses and GIF FIFO writes; a full FIFO throws MemoryStall.
+    // Aligned memory accesses and GIF FIFO writes; a full FIFO throws MemoryStall.
     // EE LQ/SQ mask the effective address in the CPU.
     std::array<std::uint64_t, 2> read_quadword(std::uint32_t address) const;
     void write_quadword(std::uint32_t address, const std::array<std::uint64_t, 2>& value);

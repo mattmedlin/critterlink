@@ -74,7 +74,7 @@ void guest() {
           system.memory().read(0x108,4)==0x20 && end.cpu.pc==0xbfc00388 &&
           end.cpu.cop0.epc==0xbfc00014 && end.cpu.cop0.status==0x00400006 &&
           system.memory().hardware().now()==8,"ROM guest literal RAM and exception results");
-    check(first.size()==5 && first[1].exception==8 && first.back().stop &&
+    check(first.size()==5 && first[1].exception==8U && first.back().stop &&
           first.back().stop->kind==StopKind::unsupported_instruction,"ROM trace");
     system.memory().load_boot_rom(std::array<std::uint8_t,4>{});
     system.restore(saved);system.run(2,&second);system.run(3,&second);
