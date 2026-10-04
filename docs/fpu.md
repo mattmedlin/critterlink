@@ -1,14 +1,14 @@
 # EE floating-point support
 
 This implements COP1 register transport, conditional branches, comparisons,
-word conversions and sign operations. FPRs store raw 32-bit patterns; all
+word conversions, sign operations and raw min/max selection. FPRs store raw 32-bit patterns; all
 implemented operations use deterministic integer logic, not host floating-point
 conversion, NaN canonicalization or rounding.
 
 ## Instruction inventory
 
 The primary instruction manual's COP1 chapter (printed pages 342–379) lists
-34 instructions. Nineteen have implemented architectural paths below; fifteen
+34 instructions. Twenty-one have implemented architectural paths below; thirteen
 remain explicit unsupported operations. This inventory counts instructions,
 not hardware fidelity, pipeline completion or milestone progress.
 
@@ -22,7 +22,7 @@ not hardware fidelity, pipeline completion or milestone progress.
 | ADD.S, ADDA.S, SUB.S, SUBA.S | 4 | Unimplemented | 343–344, 377–378 |
 | MUL.S, MULA.S | 2 | Unimplemented | 372–373 |
 | MADD.S, MADDA.S, MSUB.S, MSUBA.S | 4 | Unimplemented | 359–362, 367–370 |
-| MAX.S, MIN.S | 2 | Unimplemented | 363, 365 |
+| MAX.S, MIN.S | 2 | Implemented raw operand selection | 363, 365 |
 | DIV.S, SQRT.S, RSQRT.S | 3 | Unimplemented | 357, 375–376 |
 
 Additional work includes arithmetic flag generation, accumulator overflow state,
@@ -132,6 +132,26 @@ corroborate truncation, saturation and raw sign behavior. `cpu_fpu_convert`
 checks literal published vectors, every float exponent, integer powers of two,
 all source/destination register pairs, flag preservation, reserved fields, CU1,
 delay/annul and original guest RAM results with full-System replay.
+
+## Minimum and maximum selection
+
+MAX.S/MIN.S select and copy an entire operand encoding. Their ordering uses
+sign and raw exponent/fraction magnitude, including exponent-zero fractions;
+negative zero sorts below positive zero. Thus mixed-zero MAX selects +0 and
+MIN selects -0 regardless of source order. No host NaN/infinity conversion or
+comparison-instruction zero flushing is used. Current O/U clear; C, I/D,
+sticky flags, ACC and other registers are preserved. All source/destination
+aliases and writable FPR0 are supported.
+
+Primary instruction pages 363 and 365 specify selection and O/U clearing.
+The pinned arithmetic outputs linked above establish mixed-zero selection,
+exponent-255 handling and preservation of selected exponent-zero payloads
+(for example MIN of 0x00000001 and 1.0 returns 0x00000001). Raw ordering across
+all exponent-zero pairs is an implementation inference consistent with these
+results, not an exhaustive physical-hardware measurement. The test suite uses
+explicit ordered bit patterns, all register triples, each writable flag bit,
+CU1 and delay/annul behavior, and original guest RAM/replay expectations. Wider
+physical-hardware conformance, including unmeasured operand pairs, remains work.
 
 ## COP1 usability and exceptions
 

@@ -56,6 +56,7 @@ limitation, not a fabricated architectural Reserved Instruction exception.
 | Comparison | SLT, SLTU, SLTI, SLTIU | Signed/unsigned 64-bit comparisons; both comparison immediates sign-extended |
 | Word shifts | SLL, SRL, SRA, SLLV, SRLV, SRAV | Word result sign extension; variable count masked to five bits; NOP is SLL r0,r0,0 |
 | FPU conversions/sign operations | CVT.S.W, CVT.W.S, MOV.S, ABS.S, NEG.S | Integer logic, truncation/saturation and precise flag effects; [contract](fpu.md) |
+| FPU min/max | MIN.S, MAX.S | Raw operand selection, signed-zero order and O/U clearing; [contract and evidence limits](fpu.md) |
 | FPU comparisons | C.F.S, C.EQ.S, C.LT.S, C.LE.S | EE zero/exponent rules, C-only updates; [contract](fpu.md) |
 | FPU conditional branches | BC1F, BC1T, BC1FL, BC1TL | FCR31.C, signed offsets, delay/annul behavior and CU1 gating; [contract](fpu.md) |
 | Conditional branches | BEQ, BNE, BLEZ, BGTZ; BLTZ, BGEZ and L/AL/ALL forms; BEQL, BNEL, BLEZL, BGTZL | Signed low-64-bit comparisons; likely forms annul the untaken slot; link forms write PC+8 on both paths |

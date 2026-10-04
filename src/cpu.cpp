@@ -540,6 +540,20 @@ InstructionTrace Cpu::step(Memory& memory) {
             break;
         case 17: {
             if ((state_.cop0.status & 0x20000000U) == 0) return enter_exception(11, {}, 1);
+            if (rs == 16 && (function == 40 || function == 41)) {
+                const auto left = state_.fpu.fpr[rd];
+                const auto right = state_.fpu.fpr[rt];
+                // MIN/MAX select an unmodified encoding, including signed zeros
+                // and exponent-zero fractions, rather than using comparison flushing.
+                const auto key = [](std::uint32_t bits) {
+                    return (bits & 0x80000000U) != 0 ? ~bits : bits ^ 0x80000000U;
+                };
+                const bool select_left = function == 40 ? key(left) >= key(right) :
+                                                         key(left) <= key(right);
+                next.fpu.fpr[shift] = select_left ? left : right;
+                next.fpu.control &= ~0x0000c000U;
+                break;
+            }
             if ((rs == 16 && (function == 5 || function == 6 || function == 7 || function == 36)) ||
                 (rs == 20 && function == 32)) {
                 if (rt != 0) return unsupported();
