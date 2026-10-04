@@ -256,6 +256,12 @@ also fails other rows. Determine the combined unit's precision/rounding from
 stronger evidence before declaring this path conformant; do not special-case
 these test operands. This is unfinished investigation, not implemented behavior.
 
+A further exact-integer/rational experiment using a nearest-rounded 24-bit root
+and a truncated final quotient matches 38 of the 39 published rows, but fails
+`1/sqrt(25)` (0x3e4ccccc instead of 0x3e4ccccd). Increasing intermediate root
+precision does not explain every row either. This narrows the investigation;
+it does not establish a hardware model or justify an operand-specific workaround.
+
 ## COP1 usability and exceptions
 
 COP0 Status.CU1 (bit 29) is now accepted by MTC0 and snapshot restore. The

@@ -802,3 +802,35 @@ were made. Pipeline timing and wider #17/#4 hardware work remain open.
 [GitHub Actions run 37229083357](https://github.com/mattmedlin/critterlink/actions/runs/37229083357)
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `dbe39e0`. No platform-specific repairs were needed.
+
+## EE FPU square root
+
+On October 4, 2026, all 51 local Apple Silicon suites passed Debug, Release and
+ASan/UBSan (204.21, 15.45 and 406.72 seconds respectively) for `7e19413`.
+SQRT.S uses integer root extraction and nearest rounding, reads FT, returns a
+positive magnitude including positive zero, and updates current I/D and sticky
+SI without modifying unrelated flags or ACC. Exponent 255 remains finite.
+
+Tests cover 21 pinned published results, additional physical-hardware reports,
+all nonzero exponents using scaled exact/irrational roots, negative exponent-zero
+inputs, all FT/FD pairs, preserved state, flags, CU1, reserved FS, delay/annul and
+original guest RAM/flags output with full-System replay. Primary evidence and
+the manual's negative-zero discrepancy are documented in [FPU coverage](fpu.md).
+
+Initial Windows Release validation exposed a generated expectation of 0x60000000
+for input 0x80800000, while the CPU correctly returned 0x20000000. Diagnostic
+output was retained and the signed-power sweep was replaced with bounded unsigned
+biased-exponent sweeps in `bfe41a5`; no production arithmetic change was needed.
+The revised suite passed locally in Debug, Release and ASan/UBSan (3.21, 0.26 and
+5.87 seconds). The earlier full-suite results cover unchanged production code.
+
+RSQRT remains unsupported: neither composing ordinary rounded SQRT/DIV nor a
+truncated-quotient variant explains every published result. Multiply/accumulate,
+precision conformance, pipeline timing and wider hardware work remain open.
+The new [memory/reset inventory](memory.md) records the next implementation
+requirements without claiming those planned paths already work. #17 and #4
+remain open; no firmware or game compatibility is established by these tests.
+
+[GitHub Actions run 37230925924](https://github.com/mattmedlin/critterlink/actions/runs/37230925924)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`bfe41a5`, including the previously failing Windows Release suite.

@@ -35,6 +35,9 @@ IPU and optional-device inventory must expose omissions explicitly. Desktop UI,
 host window/audio/controller backends and packaging belong to #6; hardware-facing
 scanout, samples and controller protocols belong here.
 
+The [memory/reset inventory](memory.md) records the primary-reference mapping
+requirements and the planned ROM, translation, scratchpad and cache sequence.
+
 Completion requires a complete implementation inventory, user-supplied firmware
 boot through real implemented paths, varied redistributable homebrew, independent
 hardware expectations, restoration during activity, and the full platform matrix.
