@@ -36,6 +36,13 @@ struct Cop0State {
     bool operator==(const Cop0State&) const = default;
 };
 
+struct FpuState {
+    std::array<std::uint32_t, 32> fpr{};
+    std::uint32_t accumulator{};
+    std::uint32_t control{0x01000001U};
+    bool operator==(const FpuState&) const = default;
+};
+
 struct CpuState {
     std::array<Register128, 32> gpr{};
     Register128 hi{}, lo{};
@@ -46,6 +53,7 @@ struct CpuState {
     bool delay_slot{};
     std::uint32_t branch_pc{};
     Cop0State cop0{};
+    FpuState fpu{};
     std::optional<CpuStop> stop;
     bool operator==(const CpuState&) const = default;
 };

@@ -9,7 +9,7 @@ boot a BIOS or run games. Passing these tests does not establish PS2 compatibili
 
 `CpuState` contains 32 GPRs represented as two 64-bit lanes, both HI/LO lanes,
 SA, a 32-bit PC, pending next PC, explicit delay-slot context, explicit COP0
-registers, and a sticky stop record. Scalar instructions preserve the upper
+registers, FPR/accumulator/FCR31 state, and a sticky stop record. Scalar instructions preserve the upper
 GPR lane; r0 is always zero, including after debugger state import. HI/LO support
 the two integer multiply/divide pipelines. SA uses an internal bit count; guest MFSA/MTSA expose a four-bit byte count
 corroborated by published PS2 hardware tests.
@@ -45,6 +45,7 @@ limitation, not a fabricated architectural Reserved Instruction exception.
 
 | Family | Implemented | Semantics / test focus |
 | --- | --- | --- |
+| FPU register transport | MFC1, MTC1, CFC1, CTC1, LWC1, SWC1 | Raw bits, FCR masking, CU1 gating and code-11 guest exceptions; [contract](fpu.md) |
 | Word arithmetic | ADD, ADDU, SUB, SUBU, ADDI, ADDIU | Low 32-bit arithmetic, sign-extended result; signed forms detect overflow even for r0 destinations |
 | Doubleword arithmetic | DADD, DADDU, DSUB, DSUBU, DADDI, DADDIU | Low 64-bit arithmetic; signed overflow dispatches even for r0, upper lane preserved |
 | Doubleword shifts | DSLL, DSRL, DSRA, DSLL32, DSRL32, DSRA32, DSLLV, DSRLV, DSRAV | Full 64-bit results; variable counts masked to six bits |
@@ -560,3 +561,12 @@ and [SA test definitions](https://github.com/unknownbrackets/ps2autotests/blob/9
 No external emulator implementation was imported; these are regressions against
 published results, not new physical-hardware measurements. Pipeline timing,
 noncanonical word operands, broader conformance and FPU/control remain work.
+
+
+## COP1 register foundation (#17)
+
+MFC1/MTC1, CFC1/CTC1 and LWC1/SWC1 now have raw-bit functional paths with
+snapshot state and Status.CU1 gating. Disabled accesses raise code 11 with
+Cause.CE=1 and normal EPC/BD handling. FCR0/FCR31 behavior and explicit
+unsupported modes are documented in [FPU coverage](fpu.md). No floating-point
+arithmetic, comparisons, conversions or COP1 branches are implemented yet.

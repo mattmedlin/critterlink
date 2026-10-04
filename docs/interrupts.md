@@ -9,7 +9,7 @@ MFC0 reads BadVAddr (8), Status (12), Cause (13), EPC (14), and ErrorEPC (30),
 sign-extending the word into the low scalar lane. MTC0 writes Status, EPC, and
 ErrorEPC. Cause and BadVAddr are read-only in this subset. Noncanonical encodings
 and unsupported registers fail explicitly. Supported Status bits are IE (0),
-EXL (1), ERL (2), IM0/IM1 (10/11), EIE (16), and BEV (22). Writes and snapshots
+EXL (1), ERL (2), IM0/IM1 (10/11), EIE (16), BEV (22), and CU1 (29). Writes and snapshots
 with other Status bits are rejected; user/supervisor modes, Count/Compare,
 performance interrupts, EI/DI and other COP0 operations remain unsupported.
 Synthetic reset starts with Status zero, not the hardware reset configuration.
@@ -27,6 +27,8 @@ status, otherwise the interrupt becomes eligible again after ERET.
 | --- | --- | --- |
 | Interrupt (ExcCode 0) | `0x80000200` | `0xbfc00400` |
 | General exception | `0x80000180` | `0xbfc00380` |
+
+COP1 unusable entry uses code 11 and Cause.CE=1; see [FPU](fpu.md).
 
 Overflow, SYSCALL, BREAK, trap comparisons and alignment errors dispatch general
 exceptions with codes 12, 8, 9, 13 and 4/5 respectively. Entry sets EXL and updates ExcCode. When EXL

@@ -166,8 +166,11 @@ void Cpu::reset(std::uint32_t entry) noexcept {
     state_.next_pc = entry + 4u;
 }
 void Cpu::restore(CpuState state) {
-    if ((state.cop0.status & ~0x00410c07u) != 0) {
+    if ((state.cop0.status & ~0x20410c07u) != 0) {
         throw std::invalid_argument("unsupported COP0 Status mode in snapshot");
+    }
+    if ((state.fpu.control & ~0x0083c078U) != 0x01000001U) {
+        throw std::invalid_argument("noncanonical FPU control register in snapshot");
     }
     state.gpr[0] = {};
     state_ = std::move(state);
@@ -182,13 +185,14 @@ InstructionTrace Cpu::step(Memory& memory) {
     state_.cop0.cause = (state_.cop0.cause & ~0xc00u) |
                        (memory.hardware().int0() ? 0x400u : 0u) |
                        (memory.hardware().int1() ? 0x800u : 0u);
-    const auto enter_exception = [&](unsigned code, std::optional<std::uint32_t> bad_address = {}) {
+    const auto enter_exception = [&](unsigned code, std::optional<std::uint32_t> bad_address = {}, unsigned coprocessor = 0) {
         auto& cop0 = state_.cop0;
         if ((cop0.status & 2u) == 0) {
             cop0.epc = state_.delay_slot ? state_.branch_pc : state_.pc;
             cop0.cause = (cop0.cause & ~0x80000000u) | (state_.delay_slot ? 0x80000000u : 0u);
         }
         cop0.cause = (cop0.cause & ~0x7cu) | (code << 2);
+        if (code == 11) cop0.cause = (cop0.cause & ~0x30000000U) | (coprocessor << 28U);
         if (bad_address) { cop0.bad_vaddr = *bad_address; }
         cop0.status |= 2u;
         const auto base = (cop0.status & 0x400000u) != 0 ? 0xbfc00200u : 0x80000000u;
@@ -519,8 +523,8 @@ InstructionTrace Cpu::step(Memory& memory) {
             if ((rs != 0 && rs != 4) || (instruction & 0x7ffu) != 0) { return unsupported(); }
             if (rs == 4) {
                 if (rd == 12) {
-                    // IE/EXL/ERL, IM0/IM1, EIE, BEV. Other modes need their own implementation.
-                    if ((word_b & ~0x00410c07u) != 0) { return unsupported(); }
+                    // IE/EXL/ERL, IM0/IM1, EIE, BEV, CU1. Other modes remain unsupported.
+                    if ((word_b & ~0x20410c07u) != 0) { return unsupported(); }
                     next.cop0.status = word_b;
                 } else if (rd == 14) { next.cop0.epc = word_b; }
                 else if (rd == 30) { next.cop0.error_epc = word_b; }
@@ -534,6 +538,28 @@ InstructionTrace Cpu::step(Memory& memory) {
             else if (rd == 30) { write(rt, sign_extend(state_.cop0.error_epc, 32)); }
             else { return unsupported(); }
             break;
+        case 17: {
+            if ((state_.cop0.status & 0x20000000U) == 0) return enter_exception(11, {}, 1);
+            if ((instruction & 0x7ffU) != 0) return unsupported();
+            if (rs == 0) write(rt, sign_extend(state_.fpu.fpr[rd], 32));
+            else if (rs == 4) next.fpu.fpr[rd] = word_b;
+            else if (rs == 2) {
+                if (rd != 0 && rd != 31) return unsupported();
+                write(rt, sign_extend(rd == 0 ? 0x2e30U : state_.fpu.control, 32));
+            } else if (rs == 6) {
+                if (rd != 0 && rd != 31) return unsupported();
+                // FCR0 is read-only; writes are ignored on the referenced hardware.
+                if (rd == 31) next.fpu.control = (word_b & 0x0083c078U) | 0x01000001U;
+            } else return unsupported();
+            break;
+        }
+        case 49: case 57: { // LWC1/SWC1 transfer raw bits, including FPR0.
+            if ((state_.cop0.status & 0x20000000U) == 0) return enter_exception(11, {}, 1);
+            const auto address = word_a + static_cast<std::uint32_t>(signed_immediate);
+            if (op == 49) next.fpu.fpr[rt] = static_cast<std::uint32_t>(memory.read(address, 4));
+            else memory.write(address, 4, state_.fpu.fpr[rt]);
+            break;
+        }
         case 28:
             if (rs != 0 && ((function == 40 && (shift == 1 || shift == 5)) ||
                 (function == 8 && (shift == 30 || shift == 31)) ||

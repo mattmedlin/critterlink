@@ -77,7 +77,8 @@ barrier is reached. Adding those requires extending the completion contract. See
 ## Remaining implementation limitations
 
 - Scalar results preserve upper GPR lanes; LQ and full packed results replace both.
-  MMI decoder inventory is complete within its documented restrictions; COP1/COP2 execution is incomplete.
+  MMI decoder inventory is complete within its documented restrictions; COP1 register/control/memory transport is implemented; COP1 arithmetic and
+  COP2 execution remain incomplete.
 - Scalar and packed-word multiply/divide operands must be canonical sign-extended words. Zero divisors now
   follow published PS2 results in scalar and packed-word forms; signed minimum/-1
   returns the manual-specified quotient/remainder without an exception.
