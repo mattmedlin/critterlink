@@ -614,3 +614,33 @@ FPU/control and system hardware remain work. #17 and #4 stay open.
 [GitHub Actions run 37218711304](https://github.com/mattmedlin/critterlink/actions/runs/37218711304)
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `b3b8f0f`. No platform-specific repairs were needed.
+
+## EE FPU register transport and usability exceptions
+
+On October 4, 2026, all 44 suites passed local Apple Silicon Debug, Release and
+ASan/UBSan (140.33, 9.21 and 294.17 seconds respectively) for `47ddb1e`.
+MFC1/MTC1, CFC1/CTC1 and LWC1/SWC1 now transport raw words with the documented
+GPR extension/preservation, FPR0, FCR0 and FCR31 behavior. CPU/System snapshots
+include all FPRs, FCR31 and the reserved accumulator; invalid fixed control bits
+reject atomically. Status.CU1 enables COP1, while disabled accesses dispatch
+ExcCode 11 with Cause.CE=1 before data access or suboperation decoding.
+
+The new `cpu_fpu_register` suite covers every register and control bit, raw
+boundary patterns, memory alignment, reserved encodings, disabled accesses with
+BEV/nested EXL/delay-slot combinations, enabled delay/annul execution and replay.
+An original guest traps, enables CU1 in its handler, returns with ERET, retries
+and stores independently expected bits. A handler checkpoint reproduces traces
+and full System state. Existing integrated/CLI checks passed.
+
+Windows Debug exposed a signed/unsigned comparison in the test's optional
+exception-code assertion. `9d46472` changes its literal to unsigned; the focused
+local Debug suite passed again (4.55 seconds). Emulator source is unchanged.
+
+The [FPU contract](fpu.md) cites primary manuals and pinned published hardware
+outputs; no new physical-hardware measurements were made. Floating-point
+arithmetic, comparisons, conversions, COP1 branches, pipeline timing and broader
+hardware remain unimplemented. #17 and #4 remain open.
+
+[GitHub Actions run 37223190208](https://github.com/mattmedlin/critterlink/actions/runs/37223190208)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`9d46472`, including the repaired Windows Debug build.

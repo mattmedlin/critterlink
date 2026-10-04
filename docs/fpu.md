@@ -67,7 +67,8 @@ the handler reproduces subsequent traces and complete System state.
 
 Primary references: Sony's [EE Core manual](https://docs.alexrp.com/mips/ee.pdf),
 printed pages 73, 75, 157–159 and 164; [instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf),
-CFC1/CTC1 pages 353–354, MFC1 page 364 and MTC1 page 371, plus LWC1/SWC1.
+CFC1/CTC1 pages 353–354, LWC1 page 358, MFC1 page 364, MTC1 page 371
+and SWC1 page 379.
 Published [FCR outputs](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/ee_fpu/fcr.expected)
 and [test definitions](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/ee_fpu/fcr.cpp)
 corroborate fixed bits, flag writability, revision value and ignored FCR0 writes.
