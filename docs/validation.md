@@ -834,3 +834,37 @@ remain open; no firmware or game compatibility is established by these tests.
 [GitHub Actions run 37230925924](https://github.com/mattmedlin/critterlink/actions/runs/37230925924)
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `bfe41a5`, including the previously failing Windows Release suite.
+
+## Boot ROM backing and EE reset-vector entry
+
+On October 4, 2026, all 53 local Apple Silicon suites passed Debug, Release and
+ASan/UBSan (175.85, 12.78 and 366.50 seconds respectively) for `e4c3519`.
+Host-supplied ROM bytes now back reads and instruction fetch at physical
+0x1fc00000 and its kernel aliases. Loading validates size and copies atomically;
+unloaded ranges and writes fail explicitly. Memory/System snapshots include ROM
+bytes. A separate CPU entry API selects 0xbfc00000 and the implemented BEV/ERL
+reset bits while preserving the existing diagnostic-reset API.
+
+`boot_rom` covers memory widths, aliases, partial and maximum images, edges,
+failed/aliased loads, immutable guest accesses and replacement snapshots. Its
+original ROM program reads reset Status, stores literal results to RAM, enters
+the BEV syscall handler, and reproduces full System state/traces after replacing
+the ROM and restoring a checkpoint. `boot_rom_cli` covers bounded execution,
+inspection, trace, image and option failures and repeated identical output.
+The manually run original ROM produced five retired instructions, PC 0xbfc0000c
+and RAM[0x100]=0x2a, including its branch delay slot.
+
+Windows initially rejected a signed integer literal compared with an unsigned
+optional exception code under warnings-as-errors. `9748db6` uses an unsigned
+expectation; production behavior is unchanged. Both new suites were rerun locally
+in Debug, Release and ASan/UBSan (13.77, 0.67 and 27.21 seconds total).
+
+The [memory contract](memory.md) states the current limits: physical-address
+conveniences and cache bypass remain diagnostic behavior, reset is partial,
+IOP ROM execution is absent, and ROM writes stop rather than inventing hardware
+bus-write semantics. No proprietary firmware was used. These results establish
+ROM-backed original guest execution, not actual BIOS boot. #18 and #4 stay open.
+
+[GitHub Actions run 37232753794](https://github.com/mattmedlin/critterlink/actions/runs/37232753794)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`9748db6`, including both Windows configurations after the test type correction.
