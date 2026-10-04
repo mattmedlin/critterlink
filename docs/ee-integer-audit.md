@@ -1,6 +1,6 @@
 # EE integer execution audit — issue #16
 
-Audit date: 2026-10-03, updated through packed selection and rearrangement.
+Audit date: 2026-10-03, updated through packed HI/LO, word multiply/divide and variable shifts.
 This compares the decoder in `src/cpu.cpp` with Sony's EE instruction inventory.
 It is a source review, not a new conformance run. **#16 remains open.**
 
@@ -32,6 +32,9 @@ pipeline behavior. Detailed test contracts are in [cpu-coverage.md](cpu-coverage
 | Packed rearrangement | PEXTLB/H/W, PEXTUB/H/W, PPACB/H/W, PCPYH/LD/UD, PINTH, PINTEH, PEXEH/CH/EW/CW, PREVH, PROT3W, PEXT5, PPAC5 |
 | Packed comparisons | PCEQB/H/W, PCGTB/H/W |
 | Packed logical | PAND, POR, PXOR, PNOR |
+| Packed HI/LO moves | PMFHI, PMFLO, PMTHI, PMTLO |
+| Packed word multiply/divide | PMULTW, PMULTUW, PDIVW, PDIVUW |
+| Packed variable shifts | PSLLVW, PSRLVW, PSRAVW |
 | Packed immediate shifts | PSLLH, PSRLH, PSRAH, PSLLW, PSRLW, PSRAW |
 | Funnel shift | QFSRV |
 | Leading sign count | PLZCW |
@@ -47,7 +50,8 @@ PREF and SYNC now have a tested functional contract in the synchronous
 interpreter (see CPU coverage). MFSA, MTSA, MTSAB, MTSAH and PLZCW now have
 functional implementations too. QFSRV, packed logical operations and immediate
 lane shifts, wrapping/saturating add/subtract and equality/signed greater-than
-comparisons, selection/mixed arithmetic and rearrangement are implemented;
+comparisons, selection/mixed arithmetic, rearrangement, full HI/LO moves,
+word multiply/divide and variable word shifts are implemented;
 remaining MMI operations are still missing under
 #17. SA encoding and pipeline spacing remain abstractions,
 not hardware-verified behavior.

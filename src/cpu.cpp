@@ -548,7 +548,67 @@ InstructionTrace Cpu::step(Memory& memory) {
                 break;
             }
             switch (function) {
-            case 9: case 41: { // MMI2 PAND/PXOR, MMI3 POR/PNOR.
+            case 9: case 41: { // MMI2/MMI3.
+                if (shift == 8 || shift == 9) { // Full-width HI/LO moves.
+                    if (function == 9) {
+                        if (rs != 0 || rt != 0) return unsupported();
+                        if (rd != 0) next.gpr[rd] = shift == 8 ? state_.hi : state_.lo;
+                    } else {
+                        if (rt != 0 || rd != 0) return unsupported();
+                        (shift == 8 ? next.hi : next.lo) = state_.gpr[rs];
+                    }
+                    break;
+                }
+                if ((function == 9 && shift == 2) || shift == 3) {
+                    const auto variable = [&](std::uint64_t counts, std::uint64_t data) {
+                        const auto count = static_cast<unsigned>(counts & 31U);
+                        const auto word = static_cast<std::uint32_t>(data);
+                        std::uint32_t result = shift == 2 ? word << count : word >> count;
+                        if (function == 41 && count != 0 && (word & 0x80000000U) != 0)
+                            result |= 0xffffffffU << (32U - count);
+                        return sign_extend(result, 32);
+                    };
+                    if (rd != 0) next.gpr[rd] = {variable(a, b),
+                        variable(state_.gpr[rs].high, state_.gpr[rt].high)};
+                    break;
+                }
+                if (shift == 12 || shift == 13) {
+                    if (shift == 13 && rd != 0) return unsupported();
+                    Register128 product;
+                    for (unsigned lane = 0; lane < 2; ++lane) {
+                        const auto left = lane == 0 ? a : state_.gpr[rs].high;
+                        const auto right = lane == 0 ? b : state_.gpr[rt].high;
+                        if (left != sign_extend(left, 32) || right != sign_extend(right, 32))
+                            return fail(StopKind::unsupported_instruction,
+                                        "packed word multiply/divide requires sign-extended word operands");
+                        const auto x = static_cast<std::uint32_t>(left);
+                        const auto y = static_cast<std::uint32_t>(right);
+                        const auto signed_word = [](std::uint32_t word) {
+                            return static_cast<std::int64_t>(word) -
+                                ((word & 0x80000000U) != 0 ? 0x100000000LL : 0LL);
+                        };
+                        std::uint64_t low{}, high{};
+                        if (shift == 12) {
+                            const auto value = function == 9 ?
+                                static_cast<std::uint64_t>(signed_word(x) * signed_word(y)) :
+                                static_cast<std::uint64_t>(x) * y;
+                            (lane == 0 ? product.low : product.high) = value;
+                            low = value; high = value >> 32U;
+                        } else {
+                            if (y == 0 || (function == 9 && x == 0x80000000U && y == 0xffffffffU))
+                                return fail(StopKind::unsupported_instruction,
+                                            "packed word divide by zero or signed overflow is unsupported");
+                            if (function == 9) {
+                                low = static_cast<std::uint64_t>(signed_word(x) / signed_word(y));
+                                high = static_cast<std::uint64_t>(signed_word(x) % signed_word(y));
+                            } else { low = x / y; high = x % y; }
+                        }
+                        (lane == 0 ? next.lo.low : next.lo.high) = sign_extend(low, 32);
+                        (lane == 0 ? next.hi.low : next.hi.high) = sign_extend(high, 32);
+                    }
+                    if (shift == 12 && rd != 0) next.gpr[rd] = product;
+                    break;
+                }
                 if (shift != 18 && shift != 19) return unsupported();
                 const auto logic = [&](std::uint64_t left, std::uint64_t right) {
                     if (function == 9) return shift == 18 ? left & right : left ^ right;

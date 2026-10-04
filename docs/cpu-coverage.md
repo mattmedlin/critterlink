@@ -67,6 +67,9 @@ limitation, not a fabricated architectural Reserved Instruction exception.
 | Packed rearrangement | PEXTL/U B/H/W, PPAC B/H/W, PCPYH/LD/UD, PINTH, PINTEH, PEXEH/CH/EW/CW, PREVH, PROT3W, PEXT5, PPAC5 | Explicit lane routing and 1-5-5-5 color conversions |
 | Packed comparisons | PCEQ B/H/W, PCGT B/H/W | Equality and signed greater-than; all-one/zero lane masks |
 | Packed logical | PAND, POR, PXOR, PNOR | Full 128-bit Boolean results; both destination lanes replaced |
+| Packed HI/LO moves | PMFHI, PMFLO, PMTHI, PMTLO | Full 128-bit transfers with reserved-field checks |
+| Packed word multiply/divide | PMULTW, PMULTUW, PDIVW, PDIVUW | Two independent word operations; full products in rd; sign-extended HI/LO words; restricted divide inputs below |
+| Packed variable shifts | PSLLVW, PSRLVW, PSRAVW | Low word of each doubleword; independent five-bit counts; sign-extended doubleword results |
 | Packed immediate shifts | PSLLH, PSRLH, PSRAH, PSLLW, PSRLW, PSRAW | Independent 16/32-bit lanes; see halfword count restrictions below |
 | Funnel shift | QFSRV | SA-controlled 256-bit concatenation, low 128-bit result |
 | Leading sign count | PLZCW | Two low-word counts minus the sign bit; preserves the upper GPR lane |
@@ -330,7 +333,7 @@ branch slots and original guest RAM output. The guest saves/restores SA using
 proper instruction spacing and replays from a snapshot while a different count
 is active. Primary reference: Sony's [EE instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf),
 printed pages 176, 252–253, 261, 263–264, 266–267, 269 and 285–286.
-Packed multiply/divide, variable lane shifts and remaining MMI operations are
+Additional packed multiply/divide and remaining MMI operations are
 still missing. Arithmetic/comparison and rearrangement additions follow below.
 
 ## Packed add/subtract, saturation and comparisons (#17)
@@ -389,4 +392,40 @@ lanes and diagram define a full interleaved 32-bit pair. PEXEW follows its expli
 operation/diagram. Published [PS2 hardware results](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/ee_simd/arithmetic.expected)
 corroborate the PABSH/PABSW minimum-value clamp. No external emulator code was
 imported; these are project-authored tests, not a new physical-hardware run.
-Packed HI/LO/multiply/divide, variable shifts and other architectural work remain.
+Additional packed multiply/accumulate, halfword division, formatted HI/LO moves
+and other architectural work remain.
+
+
+## Packed HI/LO, word multiplication/division and variable shifts (#17)
+
+PMFHI/PMFLO and PMTHI/PMTLO transfer all 128 bits. Reserved source/destination
+fields reject before mutation. PMULTW/PMULTUW independently multiply the low
+32-bit word of each 64-bit source half. Each full product goes into the matching
+rd half, while its low/high words are separately sign-extended into LO/HI.
+PDIVW/PDIVUW place sign-extended quotient/remainder words into LO/HI. Unsigned
+operations also sign-extend these stored words. An r0 multiply destination still
+updates both HI/LO halves.
+
+The manual requires canonical sign-extended 32-bit operands in each source
+half, including unsigned multiplication/division. Noncanonical operands stop.
+Zero divisors and signed minimum/-1 division also stop under the existing scalar
+divide policy; no guest exception or unverified result is fabricated. Both lanes
+commit atomically, so an unsupported second lane leaves the first unchanged.
+Multiplication/division latency and pipeline hazards remain unmodeled.
+
+PSLLVW/PSRLVW/PSRAVW operate on two words, not all four: bits 31–0 and 95–64
+of rt, with independent counts from bits 4–0 and 68–64 of rs. Every result is
+sign-extended to its 64-bit half, including logical shifts with count zero.
+Other source bits are ignored; these shifts do not require canonical operands.
+
+`cpu_packed_hilo` covers literal signed/unsigned boundary products and divisions,
+full-width moves, aliases/r0, every shift count with a bit-routing oracle,
+reserved fields, second-lane failure atomicity, delay/annul execution and replay.
+An original guest loads quadwords, multiplies/divides, reads HI/LO and stores
+independently expected results, including full-System snapshot restoration.
+
+Primary reference: Sony's [EE instruction manual](https://docs.alexrp.com/mips/ee_insns.pdf),
+printed pages 194–197, 226–227, 234, 243, 245, 248–251, 262–263, 265–266 and
+268–269. Expectations are manual-based functional tests, not a new hardware run.
+Packed accumulates, halfword multiply/divide and formatted PMFHL/PMTHL remain
+unsupported, alongside FPU/control and broader system work. #17 and #4 stay open.
