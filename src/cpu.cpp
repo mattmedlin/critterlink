@@ -540,6 +540,37 @@ InstructionTrace Cpu::step(Memory& memory) {
             break;
         case 17: {
             if ((state_.cop0.status & 0x20000000U) == 0) return enter_exception(11, {}, 1);
+            if ((rs == 16 && (function == 5 || function == 6 || function == 7 || function == 36)) ||
+                (rs == 20 && function == 32)) {
+                if (rt != 0) return unsupported();
+                const auto bits = state_.fpu.fpr[rd];
+                const auto sign = bits & 0x80000000U;
+                std::uint32_t result = bits;
+                if (rs == 20) { // CVT.S.W: signed word to EE float, truncate discarded bits.
+                    const auto magnitude = sign != 0 ? 0U - bits : bits;
+                    if (magnitude != 0) {
+                        const auto exponent = 31U - static_cast<unsigned>(std::countl_zero(magnitude));
+                        const auto significand = exponent > 23 ? magnitude >> (exponent - 23) :
+                                                               magnitude << (23 - exponent);
+                        result = sign | ((exponent + 127U) << 23U) | (significand & 0x007fffffU);
+                    }
+                } else if (function == 36) { // CVT.W.S: truncate toward zero, saturate overflow.
+                    const auto exponent = (bits >> 23U) & 0xffU;
+                    if (exponent < 127) result = 0;
+                    else if (exponent > 157) result = sign != 0 ? 0x80000000U : 0x7fffffffU;
+                    else {
+                        const auto significand = (bits & 0x007fffffU) | 0x00800000U;
+                        const auto magnitude = exponent >= 150 ? significand << (exponent - 150) :
+                                                                significand >> (150 - exponent);
+                        result = sign != 0 ? 0U - magnitude : magnitude;
+                    }
+                } else if (function != 6) {
+                    result = function == 5 ? bits & 0x7fffffffU : bits ^ 0x80000000U;
+                    next.fpu.control &= ~0x0000c000U; // ABS/NEG clear current O/U, not sticky flags.
+                }
+                next.fpu.fpr[shift] = result;
+                break;
+            }
             if (rs == 16 && (function == 48 || function == 50 || function == 52 || function == 54)) {
                 if (shift != 0) return unsupported();
                 // EE exponent-zero inputs are zero; exponent 255 is finite.

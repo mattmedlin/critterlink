@@ -1,8 +1,9 @@
-# EE floating-point register, control, branch and comparison support
+# EE floating-point support
 
-This implements COP1 register transport, conditional branches, comparisons and access control, not floating-point
-arithmetic. All FPR values are raw 32-bit patterns; no host floating-point
-conversion, NaN canonicalization or rounding is involved.
+This implements COP1 register transport, conditional branches, comparisons,
+word conversions and sign operations. FPRs store raw 32-bit patterns; all
+implemented operations use deterministic integer logic, not host floating-point
+conversion, NaN canonicalization or rounding.
 
 ## State and instruction contract
 
@@ -23,8 +24,8 @@ Invalid FCR31 snapshot fixed bits reject before replacing live CPU state.
 
 Transfer encodings require bits 10–0 to be zero. FCR selectors other than 0 and
 31 remain explicit unsupported stops, even though published hardware tests show
-read aliases. Arithmetic, conversions and accumulator
-instructions remain unsupported when CU1 is enabled.
+read aliases. General arithmetic and accumulator instructions remain unsupported when CU1
+is enabled.
 
 FCR0 is fixed to implementation/revision 0x00002e30, the profile observed in the
 published PS2 tests. This is not a claim that every physical revision is identical.
@@ -84,6 +85,30 @@ C values, full-state preservation, disabled exceptions, delay/annul/replay and
 reserved encodings. An original compare/branch guest saves literal flags and
 slot-count results to RAM and replays through System snapshots. No new physical
 hardware measurements or pipeline timing claims are made.
+
+## Word conversions and sign operations
+
+CVT.S.W reads a signed 32-bit word from an FPR, finds its leading bit and packs
+an EE floating-point result, truncating discarded fraction bits toward zero.
+This includes the signed minimum without host signed overflow. CVT.W.S truncates
+the EE value toward zero, returns zero below magnitude one, and clamps biased
+exponents above 0x9d to 0x7fffffff or 0x80000000 according to sign. Exponent-255
+values therefore saturate rather than becoming host NaNs. Neither conversion
+changes FCR31 flags or ACC.
+
+MOV.S copies every bit and preserves flags. ABS.S clears the sign bit; NEG.S
+flips it. Both preserve exponent-zero fraction bits and exponent-255 patterns,
+and clear current O/U (bits 15/14) while retaining sticky flags, I/D and C.
+The unused ft field must be zero. FPR0 is writable and source/destination aliasing
+is supported. CU1, delay/annul and snapshot rules are unchanged.
+
+Primary instruction references are pages 342, 355–356, 366 and 374. Pinned
+[conversion outputs](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/ee_fpu/convert.expected)
+and [arithmetic/sign outputs](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/ee_fpu/arithmetic.expected)
+corroborate truncation, saturation and raw sign behavior. `cpu_fpu_convert`
+checks literal published vectors, every float exponent, integer powers of two,
+all source/destination register pairs, flag preservation, reserved fields, CU1,
+delay/annul and original guest RAM results with full-System replay.
 
 ## COP1 usability and exceptions
 
