@@ -540,6 +540,23 @@ InstructionTrace Cpu::step(Memory& memory) {
             break;
         case 17: {
             if ((state_.cop0.status & 0x20000000U) == 0) return enter_exception(11, {}, 1);
+            if (rs == 8) {
+                if (rt > 3) return unsupported();
+                if (state_.delay_slot) {
+                    return fail(StopKind::delay_slot_branch,
+                                "COP1 branch in a delay slot is unsupported");
+                }
+                const bool condition = (state_.fpu.control & 0x00800000U) != 0;
+                const bool taken = condition == ((rt & 1U) != 0);
+                if ((rt & 2U) != 0 && !taken) {
+                    next.pc = pc + 8U;
+                    next.next_pc = pc + 12U;
+                } else {
+                    const auto offset = static_cast<std::uint32_t>(signed_immediate) * 4U;
+                    branch(taken ? pc + 4U + offset : pc + 8U);
+                }
+                break;
+            }
             if ((instruction & 0x7ffU) != 0) return unsupported();
             if (rs == 0) write(rt, sign_extend(state_.fpu.fpr[rd], 32));
             else if (rs == 4) next.fpu.fpr[rd] = word_b;

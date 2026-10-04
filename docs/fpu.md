@@ -1,6 +1,6 @@
-# EE floating-point register and control foundation
+# EE floating-point register, control and branch support
 
-This implements COP1 register transport and access control, not floating-point
+This implements COP1 register transport, conditional branches and access control, not floating-point
 arithmetic. All FPR values are raw 32-bit patterns; no host floating-point
 conversion, NaN canonicalization or rounding is involved.
 
@@ -23,7 +23,7 @@ Invalid FCR31 snapshot fixed bits reject before replacing live CPU state.
 
 Transfer encodings require bits 10–0 to be zero. FCR selectors other than 0 and
 31 remain explicit unsupported stops, even though published hardware tests show
-read aliases. Arithmetic, comparisons, conversions, COP1 branches and accumulator
+read aliases. Arithmetic, comparisons, conversions and accumulator
 instructions remain unsupported when CU1 is enabled.
 
 FCR0 is fixed to implementation/revision 0x00002e30, the profile observed in the
@@ -37,6 +37,29 @@ LWC1/SWC1 use signed immediate offsets, 32-bit effective addresses, four-byte
 alignment and the same RAM aliases/MMIO/fault contract as LW/SW. They do not add
 TLB, cache or missing device support. Misalignment dispatches AdEL/AdES (4/5)
 without committing FPR or memory changes.
+
+## Conditional branches
+
+BC1F/BC1T and BC1FL/BC1TL sample FCR31.C (bit 23). The target is PC+4 plus
+four times the signed 16-bit offset, using 32-bit address arithmetic. Ordinary
+forms execute the delay slot whether taken or untaken. Likely forms annul the
+slot when untaken, including its memory accesses and exceptions. A slot write
+to FCR31 cannot change the previously sampled destination. These instructions
+leave registers and FCR flags unchanged.
+
+Only the four manual encodings (rt 0–3) are accepted; other selectors stop
+atomically. Enabled branches in delay slots follow the existing explicit
+unsupported-nested-branch policy. CU1 gating precedes this policy, so disabled
+COP1 still raises code 11 with the existing EPC/BD rules. A fault in an executed
+slot reports the COP1 branch's address in EPC with BD set.
+
+`cpu_fpu_branch` covers both condition values, all four forms, positive/negative
+and extreme offsets, preserved state, slot execution/annulment, slot faults,
+reserved selectors, disabled access, condition sampling and snapshot replay.
+An original guest sets C through CTC1, exercises taken/fallthrough/annulled paths,
+saves a literal result to RAM and replays from a pending branch checkpoint.
+These implement architectural boundary behavior, not FPU pipeline latency.
+Primary reference: the instruction manual, printed pages 345–348.
 
 ## COP1 usability and exceptions
 

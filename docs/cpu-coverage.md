@@ -55,6 +55,7 @@ limitation, not a fabricated architectural Reserved Instruction exception.
 | Logical | AND, OR, XOR, NOR, ANDI, ORI, XORI, LUI | 64-bit scalar logic, zero-extended logical immediates, sign-extended LUI result |
 | Comparison | SLT, SLTU, SLTI, SLTIU | Signed/unsigned 64-bit comparisons; both comparison immediates sign-extended |
 | Word shifts | SLL, SRL, SRA, SLLV, SRLV, SRAV | Word result sign extension; variable count masked to five bits; NOP is SLL r0,r0,0 |
+| FPU conditional branches | BC1F, BC1T, BC1FL, BC1TL | FCR31.C, signed offsets, delay/annul behavior and CU1 gating; [contract](fpu.md) |
 | Conditional branches | BEQ, BNE, BLEZ, BGTZ; BLTZ, BGEZ and L/AL/ALL forms; BEQL, BNEL, BLEZL, BGTZL | Signed low-64-bit comparisons; likely forms annul the untaken slot; link forms write PC+8 on both paths |
 | Jumps | J, JAL, JR, JALR | Region-preserving immediate target; PC+8 link; delayed transfer; unaligned target faults on subsequent fetch |
 | Loads | LB, LBU, LH, LHU, LW, LWU, LD | Signed/unsigned extension, alignment, little-endian assembly, negative offsets |
@@ -89,8 +90,8 @@ same source and link register stop explicitly rather than choosing a hardware
 interpretation of unpredictable behavior.
 
 Remaining architectural work includes MMI conformance/timing, CACHE operations,
-other COP0 registers/TLB, all FPU/COP1 and VU/COP2 operations. No instruction in these
-families is treated as a successful no-op.
+other COP0 registers/TLB, FPU arithmetic/comparisons/conversions and VU/COP2
+operations. Unimplemented instructions stop explicitly.
 
 ## Memory and exception staging
 
@@ -569,4 +570,6 @@ MFC1/MTC1, CFC1/CTC1 and LWC1/SWC1 now have raw-bit functional paths with
 snapshot state and Status.CU1 gating. Disabled accesses raise code 11 with
 Cause.CE=1 and normal EPC/BD handling. FCR0/FCR31 behavior and explicit
 unsupported modes are documented in [FPU coverage](fpu.md). No floating-point
-arithmetic, comparisons, conversions or COP1 branches are implemented yet.
+arithmetic, comparisons or conversions are implemented yet. BC1F/BC1T and
+BC1FL/BC1TL now implement condition sampling, delay/annul behavior and replay;
+see the FPU contract and `cpu_fpu_branch` tests.
