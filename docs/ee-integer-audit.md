@@ -77,8 +77,8 @@ barrier is reached. Adding those requires extending the completion contract. See
 ## Remaining implementation limitations
 
 - Scalar results preserve upper GPR lanes; LQ and full packed results replace both.
-  Remaining packed operations and COP1/COP2 execution remain unsupported.
-- Multiply/divide operands must be canonical sign-extended words. Division by
+  MMI completeness/conformance requires a fresh audit; COP1/COP2 execution is incomplete.
+- Scalar and packed-word multiply/divide operands must be canonical sign-extended words. Division by
   zero and signed division overflow stop explicitly in scalar and packed-word forms.
   PDIVBW accepts all source bit patterns and has explicit zero/overflow results. Other word arithmetic uses
   low-word operands deterministically; undefined hardware inputs are not proven.

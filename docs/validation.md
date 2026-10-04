@@ -513,3 +513,41 @@ remain. #17 and #4 stay open.
 [GitHub Actions run 37193903916](https://github.com/mattmedlin/critterlink/actions/runs/37193903916)
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `5c3677e`. No platform-specific repairs or weakened checks were needed.
+
+
+## Packed halfword products and broadcast division
+
+On October 4, 2026, all 41 suites passed local Apple Silicon Debug, Release and
+ASan/UBSan (129.41, 9.50 and 274.26 seconds respectively). The new
+`cpu_packed_halfword` suite covers PMULTH, PMADDH, PMSUBH, PHMADH, PHMSBH
+and PDIVBW. Mixed signed boundary vectors check all eight product lanes,
+accumulator wrap and independent HI/LO words. Literal horizontal sum overflow
+and signed product results complement the arithmetic oracle. Two published PS2
+mixed-input vectors check complete horizontal results, including upper HI/LO
+words marked undefined by the manual.
+
+PDIVBW is checked against all 65,535 nonzero divisor encodings using quotient/
+remainder identities, magnitude bounds and sign rules. Literal vectors cover
+zero divisors, minimum/-1 overflow, negative remainders and ignored divisor bits.
+Aliases/r0, reserved rd and neighboring encodings, delay/annul execution, guest
+RAM results and full-System replay are covered. The former PHMADH rejection test
+now targets a still-reserved encoding. Existing integrated/CLI tests passed.
+
+The [CPU contract](cpu-coverage.md) links the primary manual and pinned published
+hardware outputs/input definitions. Horizontal upper-word behavior and zero
+divisors follow published results; PDIVBW remainder sign extension follows the
+manual's operation/diagram and those results rather than contradictory prose.
+No external emulator implementation was imported or new physical-hardware run
+performed. MMI inventory/conformance still needs a fresh audit, and timing,
+SA hardware encoding, scalar/word divide edge restrictions, FPU/control and
+broader system work remain. #17 and #4 stay open.
+
+The first Linux build exposed a test-only C++ portability error: one `auto`
+declaration combined a `long long` remainder magnitude with a `long` divisor
+magnitude on the LP64 ABI. Splitting the declarations preserves every check.
+After that repair, the affected suite passed again in Debug, Release and
+ASan/UBSan (4.16, 0.48 and 8.75 seconds). Emulator source did not change.
+
+[GitHub Actions run 37196317838](https://github.com/mattmedlin/critterlink/actions/runs/37196317838)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`23c4572`, including both previously failing Linux configurations.
