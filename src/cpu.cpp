@@ -25,6 +25,28 @@ struct FpuArithmeticResult {
     std::uint32_t flags;
 };
 
+FpuArithmeticResult fpu_divide(std::uint32_t left, std::uint32_t right) {
+    const auto sign = (left ^ right) & 0x80000000U;
+    const auto left_exp = (left >> 23U) & 0xffU;
+    const auto right_exp = (right >> 23U) & 0xffU;
+    if (right_exp == 0) return {sign | 0x7fffffffU, left_exp == 0 ? 0x00020040U : 0x00010020U};
+    if (left_exp == 0) return {sign, 0};
+    const auto numerator = (left & 0x007fffffU) | 0x00800000U;
+    const auto denominator = (right & 0x007fffffU) | 0x00800000U;
+    const bool renormalize = numerator < denominator;
+    auto exponent = static_cast<int>(left_exp) - static_cast<int>(right_exp) + 127 - (renormalize ? 1 : 0);
+    const auto scaled = static_cast<std::uint64_t>(numerator) << (renormalize ? 24U : 23U);
+    auto quotient = scaled / denominator;
+    const auto remainder = scaled % denominator;
+    // The divide unit rounds to nearest; host rounding modes are irrelevant.
+    if (remainder * 2 > denominator || (remainder * 2 == denominator && (quotient & 1U) != 0)) ++quotient;
+    if (quotient >= 0x01000000U) { quotient >>= 1U; ++exponent; }
+    if (exponent > 255) return {sign | 0x7fffffffU, 0};
+    if (exponent <= 0) return {sign, 0};
+    return {sign | (static_cast<std::uint32_t>(exponent) << 23U) |
+            (static_cast<std::uint32_t>(quotient) & 0x007fffffU), 0};
+}
+
 FpuArithmeticResult fpu_add(std::uint32_t left, std::uint32_t right) {
     const auto left_exp = (left >> 23U) & 0xffU;
     const auto right_exp = (right >> 23U) & 0xffU;
@@ -567,6 +589,12 @@ InstructionTrace Cpu::step(Memory& memory) {
             break;
         case 17: {
             if ((state_.cop0.status & 0x20000000U) == 0) return enter_exception(11, {}, 1);
+            if (rs == 16 && function == 3) {
+                const auto result = fpu_divide(state_.fpu.fpr[rd], state_.fpu.fpr[rt]);
+                next.fpu.fpr[shift] = result.bits;
+                next.fpu.control = (state_.fpu.control & ~0x00030000U) | result.flags;
+                break;
+            }
             if (rs == 16 && (function == 0 || function == 1 || function == 24 || function == 25)) {
                 const bool accumulator = function >= 24;
                 if (accumulator && shift != 0) return unsupported();
