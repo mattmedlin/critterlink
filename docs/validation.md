@@ -551,3 +551,32 @@ ASan/UBSan (4.16, 0.48 and 8.75 seconds). Emulator source did not change.
 [GitHub Actions run 37196317838](https://github.com/mattmedlin/critterlink/actions/runs/37196317838)
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `23c4572`, including both previously failing Linux configurations.
+
+## MMI inventory audit and signed divide correction
+
+On October 4, 2026, all 42 suites passed local Apple Silicon Debug, Release and
+ASan/UBSan (131.33, 9.92 and 280.61 seconds respectively). The new
+`cpu_mmi_audit` suite checks all 2,048 MMI function/subopcode pairs against an
+explicit primary-manual inventory. With canonical register fields/operands and
+a supported SA token, 257 pairs retire and 1,791 reserved/restricted pairs stop
+atomically. The [audit](ee-mmi-audit.md) records all 99 named opcode-0x1c entries
+(103 forms counting PMFHL formats separately) as having decoder paths; this is
+not exhaustive arithmetic conformance or a cycle-accuracy claim.
+
+The review found that DIV, DIV1 and PDIVW incorrectly stopped on signed
+minimum/-1 despite the manual's explicit quotient 0x80000000 and remainder
+zero. These paths now produce the specified sign-extended word results using
+64-bit intermediates. Focused tests cover scalar pipeline isolation, either/both
+packed lanes, complete CPU-state preservation, delay/annul execution, guest RAM
+outputs and full-System snapshot replay. Prior overflow-rejection expectations
+were replaced with positive result assertions; zero-divisor and noncanonical
+operand rejection coverage remains. Existing integrated/CLI checks passed.
+
+The audit assigns remaining SA representation, zero-divisor/noncanonical input,
+undefined behavior evidence and timing/interlock gaps. COP1/control and broader
+system work remain separate major work. No new physical-hardware measurements
+were made. #17 and #4 remain open.
+
+[GitHub Actions run 37217545246](https://github.com/mattmedlin/critterlink/actions/runs/37217545246)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`5507b62`. No platform-specific repairs were needed.
