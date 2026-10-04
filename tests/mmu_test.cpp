@@ -127,7 +127,7 @@ void instructions() {
     check(cpu.step(memory).retired && cpu.state().mmu.random==46 && cpu.step(memory).retired && cpu.state().mmu.random==47,"guest Random wrap");
     for(auto opcode:{0x42000001U,0x42000002U}) {
         s=execution();s.mmu.index=48;memory.write(0x1000,4,opcode);cpu.restore(s);auto t=cpu.step(memory);
-        auto after=cpu.state();after.stop.reset();check(t.stop && !t.retired && after==s,"invalid TLB operation atomicity");
+        s.stop=t.stop;check(t.stop && !t.retired && cpu.state()==s,"invalid TLB operation atomicity");
     }
     // Invalid source masks can be staged in PageMask, but cannot silently map.
     s=execution();s.mmu.mask=0x2000;memory.write(0x1000,4,0x42000002);cpu.restore(s);

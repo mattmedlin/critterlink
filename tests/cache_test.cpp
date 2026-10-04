@@ -114,6 +114,20 @@ void controls() {
     cache_write(c,memory,0x80000502,0x502,3,0xaabbcc,3);
     check(cache_read(c,memory,0x80000500,0x500,8,false)==0x887766aabbcc2211ULL && memory.read(0x500,8)==0x8877665544332211ULL,"cached byte enables");
     cache_operation(c,memory,0x14,0x500);check(memory.read(0x500,8)==0x887766aabbcc2211ULL,"index writeback uses stored physical tag");
+    // IFL operates with ICE disabled; enabling ICE later sees the filled bytes.
+    s=cpu_state();s.cache.config=0x443;s.gpr[1].low=0x80004000;
+    memory.write(0x4000,4,0x24080001);memory.write(0x1000,4,0xbc2e0000);cpu.restore(s);
+    check(cpu.step(memory).retired && cpu.state().cache.instruction[0].tag==0x4030,"IFL with ICE disabled");
+    memory.write(0x4000,4,0x24080002);s=cpu.state();s.cache.config|=0x20000;s.pc=0x80004000;s.next_pc=s.pc+4;cpu.restore(s);
+    check(cpu.step(memory).retired && cpu.state().gpr[8].low==1,"IFL retained instruction bytes");
+    // EntryLo.C controls cached mappings; DCE disable overrides that attribute.
+    s=cpu_state();s.cache.config=0x10443;s.mmu.hi=0x00400000;s.mmu.lo0=0x9e;s.mmu.lo1=0xde;
+    tlb_write(s.mmu,0);s.gpr[1].low=0x00400000;s.gpr[2].low=42;s.gpr[4].low=0x443;
+    memory.write(0x2000,4,0);memory.write(0x1000,4,0xac220000);memory.write(0x1004,4,0x8c230000);
+    memory.write(0x1008,4,0x40848000);memory.write(0x100c,4,0x8c250000);cpu.restore(s);
+    check(cpu.step(memory).retired && cpu.step(memory).retired && cpu.state().gpr[3].low==42 &&
+          memory.read(0x2000,4)==0,"cached TLB mapping");
+    check(cpu.step(memory).retired && cpu.step(memory).retired && cpu.state().gpr[5].low==0,"DCE disable bypasses mapped cache");
 }
 void guest() {
     System system;auto& memory=system.memory();std::vector<std::uint32_t> words;
