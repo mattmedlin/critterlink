@@ -93,6 +93,32 @@ guest programs the timer, enables interrupts with EI, reads Cause in its handler
 acknowledges Compare, counts one service and returns with ERET. Snapshots taken
 both pending and inside the handler reproduce full System state and traces.
 
+## Remaining architectural-control inventory
+
+The Core manual's table 3-1 (p. 62) assigns these register groups. Implemented
+access does not imply complete timing or all register bits are supported.
+
+| Registers | Current implementation and remaining work |
+| --- | --- |
+| 0–6, 10: MMU | Functional transfers/TLB operations; [translation limits](mmu.md), Random cycle timing and hazards remain |
+| 8: BadVAddr | Updated by implemented address/TLB faults; full exception set remains |
+| 9, 11: Count/Compare | Functional counter/latch and explicit cycle input; physical clock assignment and register hazard conformance remain |
+| 12–14, 30: Status/Cause/EPC/ErrorEPC | Documented masks and level-1 entry/ERET subset; full reset, NMI, level-2 debug/performance entry, bus errors and remaining control bits remain |
+| 15: PRId | Unsupported; select and verify the emulated silicon revision before exposing its identifier |
+| 16: Config | Cache controls; issue/prediction/nonblocking flags stored but behavior/timing incomplete |
+| 23: BadPAddr | Unsupported with Status.BEM and full physical bus-error behavior |
+| 24: seven debug registers | Unsupported; breakpoint comparisons, debug entry and instruction stepping remain |
+| 25: three performance registers | Unsupported; event counters, overflow exceptions and stepping remain |
+| 28–29: TagLo/TagHi | Functional cache transfers; instruction steering/BHT and BTAC remain |
+| 7, 17–22, 26–27, 31 | Reserved in the EE table; unsupported access stops explicitly |
+
+MFC0/MTC0, EI/DI, ERET and TLBR/TLBWI/TLBWR/TLBP have paths for their documented
+subsets. CACHE coverage is tracked [separately](cache.md). BC0F/BC0FL/BC0T/BC0TL
+and the debug/performance transfer instruction families remain unsupported.
+Unimplemented instructions still stop rather than claiming architectural Reserved
+Instruction behavior for opcodes whose implementation is missing. These gaps,
+physical timing and independent conformance keep #17/#18/#4 open.
+
 ## Budgets, timing and restoration
 
 Execution budgets count CPU boundaries: each instruction attempt or interrupt

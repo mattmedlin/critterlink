@@ -104,9 +104,9 @@ barrier is reached. Adding those requires extending the completion contract. See
 | --- | --- |
 | Extend PREF/SYNC with cache/pipeline model | #17/#27: cache behavior, write-buffer flushing, pending operation completion and hardware timing; current functional contract is tested |
 | Packed execution and SA hardware behavior | #17/#27: MMI conformance gaps (see [audit](ee-mmi-audit.md)), SA pipeline spacing and wider hardware conformance; implemented instruction tests do not establish full hardware behavior |
-| Extend memory targets | #18: scratchpad, ROM/reset, virtual translation and privilege; test boundaries, aliases and fault precision |
+| Extend memory targets | #18: complete physical decode, scratchpad DMA and ROM/translation/cache conformance beyond the implemented functional paths |
 | Device memory transactions | #16 with #20: byte-enable and quadword bus API, full/empty FIFO behavior, no read-modify-write side effects, atomic rejection |
-| Full exception semantics | #17/#18: architectural unsupported-instruction and translation dispatch after the required state exists |
+| Full exception semantics | #17/#18: remaining control, level-2 and physical bus exceptions; see [inventory](interrupts.md) |
 | Hardware behavior and completion evidence | #27: latency/interlocks, concurrent DMA ordering, independent hardware observations and replay during pending work |
 
 Before closing #16, reconcile every remaining item with explicit ownership and

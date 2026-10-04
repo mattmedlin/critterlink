@@ -963,3 +963,38 @@ open.
 [GitHub Actions run 37243258019](https://github.com/mattmedlin/critterlink/actions/runs/37243258019)
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `d358065`, including the final FIFO retry regression.
+
+
+## EE COP0 timer and interrupt controls
+
+On October 4, 2026, all 57 local Apple Silicon suites were validated in Debug,
+Release and ASan/UBSan across full runs and affected-test reruns. Production code
+is `03e0801`; the final test correction and additional stall check are `b279133`.
+Initial full runs took 182.44, 11.60 and 385.04 seconds respectively, with only an
+obsolete GIF-stall full-state expectation failing. The assertion now expects two
+elapsed Count cycles while still comparing every other CPU field. The corrected
+`cop0_timer|gif_fifo` suites passed in 16.20, 0.63 and 34.07 seconds. A preflight SA
+full-state expectation was likewise extended by the five supplied run cycles.
+No production clock behavior was weakened to preserve the obsolete expectations.
+
+Implemented Count/Compare transfers, wrapping explicit cycle advancement, latched
+IP7 and Compare acknowledgement, IM7 delivery, EI/DI with EDI privilege semantics,
+and Status.CH updates for DHIN/DHWBIN. Tests include full-width/large advances,
+all EI/DI privilege combinations (including mapped user execution with CU0 clear),
+interrupt masks, BEV and delay-slot entry, external-source independence, cache
+hit/miss reporting and a full FIFO stall interrupted by the timer before acceptance.
+An original guest programs Compare, enables interrupts with EI, reads Cause,
+acknowledges Compare, increments its service count and returns through ERET.
+Pending and in-handler snapshots reproduce complete System state and traces.
+
+`Cpu::step` executes a boundary without assigning elapsed cycles; the explicit
+clock API is independent of retirement. Cpu/System runners currently supply one
+diagnostic cycle for retirement, exception entry or FIFO stall. Physical issue
+latencies, EE/bus ratios, COP0 hazards and write/compare pipeline conformance remain
+unmodeled. The [control inventory](interrupts.md) also lists remaining PRId,
+bus-error, debug/performance, level-2 and BC0 work. No new console measurements,
+firmware boot or general game compatibility are claimed; #17/#18/#4 stay open.
+
+[GitHub Actions run 37245000037](https://github.com/mattmedlin/critterlink/actions/runs/37245000037)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`b279133`, including the corrected stalled-clock expectation and timer preemption.
