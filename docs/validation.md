@@ -435,3 +435,30 @@ and other MMI operations remain incomplete; #17 and #4 remain open.
 [GitHub Actions run 37161838307](https://github.com/mattmedlin/critterlink/actions/runs/37161838307)
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `84b2fe2` without a platform-specific repair.
+
+## Packed selection, mixed arithmetic and rearrangement (#17)
+
+On October 3, 2026, all 38 suites passed local Apple Silicon Debug, Release and
+ASan/UBSan (116.37, 7.96 and 245.81 seconds respectively). The new
+`cpu_packed_permute` suite checks explicit byte routes with every source bit,
+all 65,536 packed color inputs, color-bit selection/discard, signed min/max and
+absolute-value boundaries, literal PADSBH lane results, aliases/r0, reserved
+unary fields, delay/annul behavior and replay. A guest interleaves two quadwords
+and packs them back into independently expected RAM bytes, restoring full System
+state mid-sequence without changing subsequent traces or results.
+
+This adds 29 instructions: min/max and absolute halfwords/words, PADSBH,
+PEXT lower/upper and PPAC B/H/W, PCPYH/LD/UD, PINTH/PINTEH, six exchange/reverse/
+rotate operations, and PEXT5/PPAC5. Earlier rejection tests were updated where
+an unimplemented neighbor became supported; still-unimplemented encodings retain
+explicit rejection coverage. Existing integrated and CLI expectations passed.
+
+The PABS minimum-value clamp agrees with the manual and published PS2 hardware
+results linked in [CPU coverage](cpu-coverage.md). Other new expectations derive
+from the manual and project-authored fixtures; this was not a new physical-hardware
+run. Packed HI/LO/multiply/divide, variable shifts, FPU/control and hardware timing
+remain unfinished. #17 and #4 remain open.
+
+[GitHub Actions run 37162701817](https://github.com/mattmedlin/critterlink/actions/runs/37162701817)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`2e526fb` without platform-specific repairs.
