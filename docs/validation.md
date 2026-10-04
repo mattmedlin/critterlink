@@ -905,3 +905,33 @@ retired instructions rather than cycles, pipeline hazards and scratchpad DMA are
 unmodeled, and scratchpad instruction fetch stops explicitly. No proprietary
 firmware or new physical-console measurements were used. #18 and #4 stay open;
 these results do not establish actual BIOS boot or general game compatibility.
+
+
+## EE instruction and data caches
+
+On October 4, 2026, all 55 local Apple Silicon suites passed Debug, Release and
+ASan/UBSan (184.50, 12.68 and 377.52 seconds) for production commit `d3cb1df`.
+The final test-only commit `0e9952a` additionally passed focused `cache|mmu`
+checks in all three configurations (9.93, 0.74 and 19.63 seconds).
+
+Architectural execution now implements the Config-controlled 16-KiB instruction
+and 8-KiB data caches, writeback/write-through visibility, replacement/locking,
+TagLo/TagHi transfers and fourteen CACHE maintenance operations. Original guests
+verify dirty data remains separate from RAM until writeback, cached code remains
+stale until invalidation, and full System checkpoint replay preserves cache state.
+Tests also cover all indices/ways, indexed words, disabled-cache IFL, mapped cache
+attributes, quadword and partial writes, privilege/translation faults and invalid
+snapshot rejection. See the [cache contract](cache.md) for the exact boundaries.
+
+Linux Release initially rejected an existing MMU test's copied-and-reset
+`optional<string>` with GCC's maybe-uninitialized warning. The final test compares
+full CPU state against an expected stop record directly, preserving the atomicity
+assertion without suppressing diagnostics or changing production behavior.
+
+No proprietary firmware or new physical-console measurements were used. UCAB,
+instruction steering/BHT, BTAC and cache/bus timing remain absent. This batch does
+not establish BIOS boot or game compatibility; #18 and #4 remain open.
+
+[GitHub Actions run 37240123551](https://github.com/mattmedlin/critterlink/actions/runs/37240123551)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`0e9952a`, including Linux Release after the portable test correction.
