@@ -56,6 +56,7 @@ limitation, not a fabricated architectural Reserved Instruction exception.
 | Comparison | SLT, SLTU, SLTI, SLTIU | Signed/unsigned 64-bit comparisons; both comparison immediates sign-extended |
 | Word shifts | SLL, SRL, SRA, SLLV, SRLV, SRAV | Word result sign extension; variable count masked to five bits; NOP is SLL r0,r0,0 |
 | FPU conversions/sign operations | CVT.S.W, CVT.W.S, MOV.S, ABS.S, NEG.S | Integer logic, truncation/saturation and precise flag effects; [contract](fpu.md) |
+| FPU square root | SQRT.S | Integer root/nearest rounding, magnitude result and I/SI from operand sign; [contract](fpu.md) |
 | FPU division | DIV.S | Integer nearest rounding, signed special values, I/D and sticky flags; [contract](fpu.md) |
 | FPU add/subtract | ADD.S, SUB.S, ADDA.S, SUBA.S | Integer alignment/normalization, saturation, O/U and sticky flags; [contract and evidence limits](fpu.md) |
 | FPU min/max | MIN.S, MAX.S | Raw operand selection, signed-zero order and O/U clearing; [contract and evidence limits](fpu.md) |
@@ -574,7 +575,7 @@ noncanonical word operands, broader conformance and FPU/control remain work.
 MFC1/MTC1, CFC1/CTC1 and LWC1/SWC1 now have raw-bit functional paths with
 snapshot state and Status.CU1 gating. Disabled accesses raise code 11 with
 Cause.CE=1 and normal EPC/BD handling. FCR0/FCR31 behavior and explicit
-unsupported modes are documented in [FPU coverage](fpu.md). Multiply/accumulate and square-root
+unsupported modes are documented in [FPU coverage](fpu.md). Multiply/accumulate and reciprocal-square-root
 remain unimplemented. BC1F/BC1T and
 BC1FL/BC1TL now implement condition sampling, delay/annul behavior and replay;
 see the FPU contract and `cpu_fpu_branch` tests.

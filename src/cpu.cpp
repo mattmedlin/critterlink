@@ -25,6 +25,27 @@ struct FpuArithmeticResult {
     std::uint32_t flags;
 };
 
+FpuArithmeticResult fpu_sqrt(std::uint32_t bits) {
+    const auto flags = (bits & 0x80000000U) != 0 ? 0x00020040U : 0U;
+    const auto exponent = (bits >> 23U) & 0xffU;
+    if (exponent == 0) return {0, flags};
+    const auto odd = (exponent & 1U) == 0 ? 1U : 0U;
+    const auto radicand = static_cast<std::uint64_t>((bits & 0x007fffffU) | 0x00800000U) << (23U + odd);
+    // Integer floor sqrt of a <=48-bit radicand; all products fit uint64.
+    std::uint64_t low = 0, high = 0x01000000U;
+    while (low + 1 < high) {
+        const auto mid = low + (high - low) / 2;
+        if (mid * mid <= radicand) low = mid;
+        else high = mid;
+    }
+    // (low+1/2)^2 = low^2+low+1/4; an integer radicand cannot tie.
+    auto root = low + (radicand - low * low > low ? 1U : 0U);
+    auto result_exp = (static_cast<int>(exponent) - 127 - static_cast<int>(odd)) / 2 + 127;
+    if (root >= 0x01000000U) { root >>= 1U; ++result_exp; }
+    return {(static_cast<std::uint32_t>(result_exp) << 23U) |
+            (static_cast<std::uint32_t>(root) & 0x007fffffU), flags};
+}
+
 FpuArithmeticResult fpu_divide(std::uint32_t left, std::uint32_t right) {
     const auto sign = (left ^ right) & 0x80000000U;
     const auto left_exp = (left >> 23U) & 0xffU;
@@ -589,6 +610,13 @@ InstructionTrace Cpu::step(Memory& memory) {
             break;
         case 17: {
             if ((state_.cop0.status & 0x20000000U) == 0) return enter_exception(11, {}, 1);
+            if (rs == 16 && function == 4) {
+                if (rd != 0) return unsupported();
+                const auto result = fpu_sqrt(state_.fpu.fpr[rt]);
+                next.fpu.fpr[shift] = result.bits;
+                next.fpu.control = (state_.fpu.control & ~0x00030000U) | result.flags;
+                break;
+            }
             if (rs == 16 && function == 3) {
                 const auto result = fpu_divide(state_.fpu.fpr[rd], state_.fpu.fpr[rt]);
                 next.fpu.fpr[shift] = result.bits;

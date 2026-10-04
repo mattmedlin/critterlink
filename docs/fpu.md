@@ -1,14 +1,14 @@
 # EE floating-point support
 
 This implements COP1 register transport, conditional branches, comparisons,
-word conversions, sign operations, raw min/max selection, add/subtract and division. FPRs store raw 32-bit patterns; all
+word conversions, sign operations, raw min/max selection, add/subtract, division and square root. FPRs store raw 32-bit patterns; all
 implemented operations use deterministic integer logic, not host floating-point
 conversion, NaN canonicalization or rounding.
 
 ## Instruction inventory
 
 The primary instruction manual's COP1 chapter (printed pages 342–379) lists
-34 instructions. Twenty-six have implemented architectural paths below; eight
+34 instructions. Twenty-seven have implemented architectural paths below; seven
 remain explicit unsupported operations. This inventory counts instructions,
 not hardware fidelity, pipeline completion or milestone progress.
 
@@ -24,7 +24,8 @@ not hardware fidelity, pipeline completion or milestone progress.
 | MADD.S, MADDA.S, MSUB.S, MSUBA.S | 4 | Unimplemented | 359–362, 367–370 |
 | MAX.S, MIN.S | 2 | Implemented raw operand selection | 363, 365 |
 | DIV.S | 1 | Implemented integer quotient/remainder rounding and I/D flags | 357 |
-| SQRT.S, RSQRT.S | 2 | Unimplemented | 375–376 |
+| SQRT.S | 1 | Implemented integer root/nearest rounding and sign-driven I flag | 376 |
+| RSQRT.S | 1 | Unimplemented; combined rounding under investigation | 375 |
 
 Additional work includes arithmetic flag generation, accumulator overflow state,
 interlocks and hardware timing; FCR alias behavior remains restricted as below.
@@ -48,7 +49,7 @@ Invalid FCR31 snapshot fixed bits reject before replacing live CPU state.
 
 Transfer encodings require bits 10–0 to be zero. FCR selectors other than 0 and
 31 remain explicit unsupported stops, even though published hardware tests show
-read aliases. Multiply, multiply-accumulate and square-root instructions remain
+read aliases. Multiply, multiply-accumulate and reciprocal-square-root instructions remain
 unsupported when CU1 is enabled.
 
 FCR0 is fixed to implementation/revision 0x00002e30, the profile observed in the
@@ -222,14 +223,30 @@ register aliases, CU1 and delay/annul behavior. An original guest stores 1/3,
 a divide-by-zero result and FCR31 to RAM and reproduces full state and traces
 from a System snapshot. Broader physical conformance and timing remain work.
 
-## Remaining divider-unit investigation
+## Square root
 
-A separate integer square-root prototype matches the 21 pinned `sqrt.expected`
-results, including finite exponent 255. The physical 90K report
-[14790](https://github.com/PCSX2/pcsx2/issues/14790) additionally reports +0 and
-I/SI for negative zero and negative exponent-zero inputs, contrary to the
-instruction manual's negative-zero result wording. These facts should anchor
-SQRT.S implementation and flag tests.
+SQRT.S reads FT (not FS) and requires the reserved FS field to be zero. It
+computes the positive root of the operand magnitude using a 48-bit integer
+radicand, binary-search floor root and exact remainder-based nearest rounding.
+No host square-root function or rounding mode is used. Exponent-zero operands
+produce +0; exponent 255 stays finite. All sign-set inputs, including -0 and
+negative exponent-zero payloads, set I/SI. Current I/D clear first; O/U, C and
+all other sticky flags survive. No arithmetic guest exception is raised.
+
+Primary instruction page 376 defines the encoding and general flag behavior,
+but its -0 result wording conflicts with the pinned published outputs and the
+physical 90K report [14790](https://github.com/PCSX2/pcsx2/issues/14790), which
+reports +0 with I/SI for -0 and negative exponent-zero operands. The implementation
+follows those observations. Report [14794](https://github.com/PCSX2/pcsx2/issues/14794)
+and the pinned [sqrt outputs](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/ee_fpu/sqrt.expected)
+anchor nearest rounding and the extended exponent range. Tests cover all 21
+published vectors, every nonzero exponent with power-of-two operands and both
+signs, all FT/FD register pairs, flag preservation, reserved fields, CU1,
+delay/annul and original guest RAM/flags output with full-System replay.
+These are reference-based regressions, not new hardware measurements; divider
+pipeline timing and exhaustive operand conformance remain work.
+
+## Remaining reciprocal-square-root investigation
 
 RSQRT.S cannot yet be assumed to be DIV.S applied to a stored SQRT.S result.
 That composition misses seven of the 39 pinned `rsqrt` rows: 3/sqrt(3) produces
