@@ -580,3 +580,37 @@ were made. #17 and #4 remain open.
 [GitHub Actions run 37217545246](https://github.com/mattmedlin/critterlink/actions/runs/37217545246)
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `5507b62`. No platform-specific repairs were needed.
+
+## Zero-divisor results and guest SA byte tokens
+
+On October 4, 2026, all 43 suites passed local Apple Silicon Debug, Release and
+ASan/UBSan (135.20, 8.96 and 285.16 seconds respectively). DIV/DIVU, their
+pipeline-1 forms and PDIVW/PDIVUW now implement published PS2 zero-divisor
+results. Signed quotients are -1 for nonnegative dividends and +1 for negative
+dividends; unsigned quotients are all-one words. Remainders retain the dividend
+word with ordinary sign extension. All packed lanes and scalar pipelines are
+independent. Noncanonical operands still reject atomically.
+
+The new `cpu_divide_zero` suite covers zero, positive, negative and minimum-word
+vectors in all six forms, either/both packed lanes, full CPU-state preservation,
+r0 sources, branch delay/annul behavior, noncanonical rejection after a valid
+first lane, and original guest RAM results with full-System replay. Prior
+zero-divisor rejection tests were replaced with positive output checks.
+
+MFSA now exposes a four-bit byte count; MTSA masks the source to four bits and
+converts it to the internal bit count used by QFSRV and existing snapshots.
+`cpu_sa` checks every guest byte token, each source bit, published masking
+examples, MTSAB/MTSAH tokens and a literal published MTSA-1/QFSRV byte rotation.
+RAM token save/restore, upper-lane preservation and existing funnel/replay tests
+pass. Invalid debugger-imported internal counts still stop at QFSRV.
+
+Pinned primary hardware outputs and test definitions are linked in
+[CPU coverage](cpu-coverage.md). These are evidence-backed regressions, not new
+physical-hardware runs. The manual's save/restore-only software contract and
+pipeline spacing restrictions remain documented; observed token values do not
+establish cycle accuracy. Noncanonical word operands, broader conformance,
+FPU/control and system hardware remain work. #17 and #4 stay open.
+
+[GitHub Actions run 37218711304](https://github.com/mattmedlin/critterlink/actions/runs/37218711304)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`b3b8f0f`. No platform-specific repairs were needed.
