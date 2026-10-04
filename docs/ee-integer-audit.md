@@ -86,16 +86,16 @@ barrier is reached. Adding those requires extending the completion contract. See
   low-word operands deterministically; undefined hardware inputs are not proven.
 - Branches in delay slots and unpredictable link/source overlaps stop. Ordinary
   taken/untaken slots, likely annulment and trap delay context have focused tests.
-- Multiply/divide commit immediately. There is no dual issue, scoreboard, cache,
-  write buffer, bus completion model or hardware cycle accounting.
-- Merge accesses support RAM only. SQ also supports the shared GIF FIFO with
+- Multiply/divide commit immediately. Functional caches and UCAB are implemented. There is no dual issue, scoreboard,
+  write buffer, bus completion model or physical cycle accounting.
+- Merge accesses support RAM/ROM, translated scratchpad and enabled caches. SQ also supports the shared GIF FIFO with
   backpressure; other quadword MMIO and device byte enables remain unsupported.
   See [GIF FIFO](gif-fifo.md) for the precise implemented transaction contract.
 - Address errors, overflow, traps, syscall/break and selected interrupts dispatch
-  guest exceptions. Unsupported translation/devices/opcodes still stop on the
-  host; they do not establish architectural RI, TLB or coprocessor exceptions.
-- COP0 access is restricted to selected registers/status bits. Privilege modes,
-  Remaining TLB/cache conformance, full interrupt control and architectural reset are
+  guest exceptions. TLB/privilege and CU0/CU1 faults are implemented. Unimplemented
+  devices/opcodes still stop on the host instead of inventing RI/bus exceptions.
+- COP0 access is restricted to selected registers/status bits. Remaining
+  TLB/cache conformance, full interrupt control and architectural reset are
   incomplete. Synthetic entry points are not BIOS boot.
 
 ## Next work and dependencies

@@ -125,9 +125,9 @@ void delay_slot_retry() {
     memory.write(0,4,0x10000003); memory.write(4,4,(31U<<26)|(1U<<21)|(2U<<16));
     CpuState cpu; cpu.gpr[1].low=fifo; cpu.gpr[2]={empty_tag[0],empty_tag[1]}; system.cpu().restore(cpu);
     check(system.run(1)==RunResult{1,true},"delay branch");
-    const auto before=system.cpu().state(); std::vector<InstructionTrace> trace;
+    auto expected=system.cpu().state();expected.cop0.count+=2;std::vector<InstructionTrace> trace;
     check(system.run(2,&trace)==RunResult{0,true} && trace[0].stalled && trace[0].delay_slot &&
-          system.cpu().state()==before,"stall lost delay context");
+          system.cpu().state()==expected,"stall lost delay context or timer progress");
     memory.write(ctrl,4,0);
     check(system.run(2)==RunResult{1,true} && system.cpu().state().pc==16 && !system.cpu().state().delay_slot,"delay retry target");
 

@@ -115,8 +115,11 @@ void guest_and_clocks() {
     // A real stalled FIFO boundary advances time even without retirement.
     System stalled;stalled.memory().write(0x10003000,4,8);
     for(unsigned n=0;n<16;++n)stalled.memory().write_quadword(0x10006000,{0x1000000000008000ULL,14});
-    s=CpuState{};s.gpr[1].low=0x10006000;s.cop0.compare=1;stalled.cpu().restore(s);stalled.memory().write(0,4,0x7c220000);
+    s=CpuState{};s.gpr[1].low=0x10006000;s.cop0.compare=1;s.cop0.status=0x18001;stalled.cpu().restore(s);stalled.memory().write(0,4,0x7c220000);
     check(stalled.run(1).retired==0 && stalled.cpu().state().cop0.count==1 && (stalled.cpu().state().cop0.cause&0x8000U)!=0,"FIFO stall still reaches timer match");
+    std::vector<InstructionTrace> trace;check(stalled.run(1,&trace).retired==0 && trace[0].exception==0U &&
+        stalled.cpu().state().cop0.epc==0 && stalled.cpu().state().cop0.count==2 &&
+        stalled.memory().hardware().state().gif_fifo.count==16,"timer preempts stalled store without accepting data");
 }
 }
 int main(){try{clock_matches();transfers();enable_disable();interrupt_gates();cache_hit_status();guest_and_clocks();std::cout<<"COP0 timer and interrupt control tests passed\n";}
