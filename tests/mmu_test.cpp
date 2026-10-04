@@ -152,6 +152,13 @@ void exceptions() {
     }
     auto s=execution();s.gpr[2].low=0x00400001;memory.write(0x1000,4,0x8c410000);cpu.restore(s);
     check(cpu.step(memory).exception==4U && cpu.state().mmu==s.mmu,"alignment before translation");
+    for(unsigned opcode:{26U,27U,34U,38U,42U,44U,45U,46U}) {
+        s=execution();s.gpr[2].low=0x00401237;
+        memory.write(0x1000,4,(opcode<<26U)|(2U<<21U)|(1U<<16U));cpu.restore(s);
+        const auto code=opcode==26 || opcode==27 || opcode==34 || opcode==38?2U:3U;
+        check(cpu.step(memory).exception==code && cpu.state().cop0.bad_vaddr==0x00401237,
+              "merge translation fault retains effective address");
+    }
     s=execution();s.pc=0x00400000;s.next_pc=s.pc+4;cpu.restore(s);
     check(cpu.step(memory).exception==2U && cpu.state().cop0.bad_vaddr==0x00400000,"instruction refill");
     // User fetch is mapped, but COP0 needs CU0; EXL/ERL override user privilege.
@@ -185,6 +192,11 @@ void guest() {
     check(system.cpu().step(system.memory()).retired && system.cpu().step(system.memory()).retired && system.cpu().state().gpr[3]==s.gpr[2],"scratchpad SQ/LQ");
     rejected([&]{system.memory().write_scratchpad(0x3fff,2,0);});
     check(system.memory().read_scratchpad(0x3fff,1)==0xfe,"scratchpad rejected write atomicity");
+    s=execution();map(s.mmu,0,0x60000000,0x80000016,0x16);s.gpr[1].low=0x60000001;
+    s.gpr[4].low=0xfedcba9876543210ULL;system.cpu().restore(s);
+    system.memory().write_scratchpad(0,4,0x33221100);system.memory().write(0x1000,4,0x98240000);
+    check(system.cpu().step(system.memory()).retired && system.cpu().state().gpr[4].low==0xfedcba9876332211ULL,
+          "mapped scratchpad partial LWR");
 }
 void refill_handler() {
     System system;

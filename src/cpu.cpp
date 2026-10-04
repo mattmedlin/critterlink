@@ -1041,6 +1041,8 @@ InstructionTrace Cpu::step(Memory& memory) {
                 } else {
                     write_memory(start, count, b >> amount, true);
                 }
+            } catch (const TranslationFault& fault) {
+                throw TranslationFault{fault.code,address,fault.refill};
             } catch (const MemoryFault& fault) {
                 // Byte-enabled access starts may differ from the instruction's effective address.
                 throw MemoryFault(fault.reason, fault.access, address, fault.what());
