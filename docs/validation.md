@@ -868,3 +868,40 @@ ROM-backed original guest execution, not actual BIOS boot. #18 and #4 stay open.
 [GitHub Actions run 37232753794](https://github.com/mattmedlin/critterlink/actions/runs/37232753794)
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `9748db6`, including both Windows configurations after the test type correction.
+
+## EE TLB translation, privilege faults and scratchpad
+
+On October 4, 2026, all 54 local Apple Silicon suites passed Debug, Release and
+ASan/UBSan (195.05, 14.24 and 373.80 seconds respectively) for `1d4ccfb`.
+Boot-vector CPU execution now performs architectural translation and privilege
+checks for fetch, scalar/FPU, merge and quadword accesses. The explicit flat
+profile remains available for directly initialized diagnostics/ELFs.
+
+The implementation includes 48 TLB entries, seven page sizes, ASID/global and
+even/odd matching, MMU register transfers, TLBR/TLBWI/TLBWR/TLBP, replacement
+state, refill/invalid/modified exceptions and a separately backed 16-KiB
+scratchpad selected by EntryLo0.S. CPU/System snapshots validate and restore the
+translation profile, registers, entries, replacement state and scratchpad bytes.
+
+`mmu` tests all page sizes, all slots, frame edges, permissions, register masks,
+replacement wrap, invalid states, nested/BEV/delay-slot exceptions and original
+mapped-RAM/scratchpad guest output. A real guest refill handler installs a missing
+mapping, executes SYNC.P/ERET and retries the load; checkpoint replay reproduces
+complete System state and traces. Review caught partial-access fault addresses
+being aligned too early; all eight merge forms now have original-effective-address
+regressions. Invalid scratchpad snapshot sizes reject atomically.
+
+Initial Windows runs crashed in five snapshot-heavy integration suites after
+scratchpad bytes were added inline. Moving scratchpad backing and snapshots to
+heap-backed vectors resolved those failures without increasing platform stack
+limits or weakening the suites. The final full local runs above include that
+storage change and the merge-fault fix.
+
+[GitHub Actions run 37234929333](https://github.com/mattmedlin/critterlink/actions/runs/37234929333)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`1d4ccfb`. The [MMU contract](mmu.md) records deterministic choices for undefined
+reset/read values and current limits: cache modes bypass to backing, Random uses
+retired instructions rather than cycles, pipeline hazards and scratchpad DMA are
+unmodeled, and scratchpad instruction fetch stops explicitly. No proprietary
+firmware or new physical-console measurements were used. #18 and #4 stay open;
+these results do not establish actual BIOS boot or general game compatibility.

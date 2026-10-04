@@ -75,7 +75,9 @@ before live CPU replacement.
 
 EntryLo0.S selects 16 KiB of separate scratchpad backing. The mapping must be
 16-KiB aligned, PageMask zero, and paired V/D bits equal. C reads as 2; PFN is
-ignored for data access. All supported CPU data widths, merge paths and LQ/SQ
+ignored for data access. TLBR returns zero PageMask for scratchpad entries, a
+deterministic choice where the manual specifies an undefined read value.
+All supported CPU data widths, merge paths and LQ/SQ
 use the translated offset. There is no fixed 0x70000000 shortcut. Instruction
 fetch from scratchpad is explicitly unsupported pending independent evidence.
 Scratchpad bytes participate in Memory/System snapshots. `Memory::clear()`
@@ -85,6 +87,8 @@ continues to clear main RAM only. Scratchpad DMA/contention remain open.
 privilege modes, even/odd frames, clean/invalid/missing pages, register masks,
 TLB instructions, Random/Wired, non-default scratchpad mappings, SQ/LQ,
 invalid-state rejection, nested/BEV/delay-slot exception entry and fetch faults.
+Merge-fault regressions check that BadVAddr reports the original effective
+address rather than the aligned start of the partial byte range.
 An original guest writes mapped RAM and scratchpad with literal expectations.
 A second original handler services a real TLB refill with TLBWI/SYNC.P/ERET,
 retries the faulting load and reproduces complete System state/traces from a
