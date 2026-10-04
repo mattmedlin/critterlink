@@ -721,3 +721,29 @@ were made. #17 and #4 remain open.
 [GitHub Actions run 37226068337](https://github.com/mattmedlin/critterlink/actions/runs/37226068337)
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `ca64b82`. No platform-specific repairs were needed.
+
+## EE FPU minimum/maximum operand selection
+
+On October 4, 2026, all 48 local Apple Silicon suites passed Debug, Release and
+ASan/UBSan (154.65, 10.47 and 319.25 seconds respectively) for `bbf7c26`.
+MIN.S/MAX.S now select and preserve raw operand encodings, including signed-zero
+ordering and exponent-zero payloads, and clear current O/U while retaining
+other flags. FPR0 and all source/destination aliases are supported.
+
+The new suite checks explicit ascending bit patterns, all register triples,
+each writable flag bit, CU1 exceptions, delay/annul and replay. An original guest
+stores independently expected +0, -0 and a selected exponent-zero payload and
+reproduces traces and complete System state after restoration. A first negative
+test accidentally encoded a valid BC1F instruction; that test case was removed
+before the full runs. Existing branch tests still cover BC1F.
+
+Primary instruction pages 363/365, Core manual page 163 and pinned published
+outputs establish selection, flags, signed-zero handling and representative raw
+payload results. The [FPU contract](fpu.md) explicitly distinguishes the broader
+raw exponent-zero ordering inference from exhaustive physical-hardware evidence.
+No new hardware measurements were made. Arithmetic and pipeline conformance,
+alongside broader architectural/hardware work, remain open in #17 and #4.
+
+[GitHub Actions run 37227098556](https://github.com/mattmedlin/critterlink/actions/runs/37227098556)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`bbf7c26`. No platform-specific repairs were needed.

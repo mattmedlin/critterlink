@@ -143,7 +143,8 @@ comparison-instruction zero flushing is used. Current O/U clear; C, I/D,
 sticky flags, ACC and other registers are preserved. All source/destination
 aliases and writable FPR0 are supported.
 
-Primary instruction pages 363 and 365 specify selection and O/U clearing.
+Primary instruction pages 363 and 365 specify selection and O/U clearing;
+the Core manual, page 163, also specifies every signed-zero MIN/MAX result.
 The pinned arithmetic outputs linked above establish mixed-zero selection,
 exponent-255 handling and preservation of selected exponent-zero payloads
 (for example MIN of 0x00000001 and 1.0 returns 0x00000001). Raw ordering across
