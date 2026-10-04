@@ -32,8 +32,8 @@ struct MemoryState {
     bool operator==(const MemoryState&) const = default;
 };
 
-// Physical backing plus legacy diagnostic aliases. CPU owns TLB translation;
-// cache behavior is not yet implemented.
+// Physical backing plus legacy diagnostic aliases. CPU owns TLB translation
+// and its instruction/data caches and accelerated read buffer.
 class Memory {
 public:
     static constexpr std::size_t ram_size = 32 * 1024 * 1024;

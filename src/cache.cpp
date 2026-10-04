@@ -55,6 +55,8 @@ void check_range(std::uint32_t va,unsigned count) {
 }
 }
 void validate_cache(const CacheState& s) {
+    if((s.accelerated.base&127U)!=0 || s.accelerated.base>=0x20000000U)
+        throw std::invalid_argument("invalid accelerated-buffer physical tag");
     if((s.config&~0x00073007U)!=0x440U ||
        ((s.config&7U)!=0 && (s.config&7U)!=2 && (s.config&7U)!=3 && (s.config&7U)!=7))
         throw std::invalid_argument("invalid cache Config snapshot");
@@ -70,6 +72,26 @@ void write_config(CacheState& s,std::uint32_t value) {
     const auto mode=value&7U;
     if(mode!=0 && mode!=2 && mode!=3 && mode!=7) throw std::invalid_argument("reserved Config.K0 cache mode");
     s.config=0x440U|(value&0x73007U);
+}
+bool accelerated_enabled(const CacheState& s,unsigned mode) noexcept {
+    // Config.DCE overrides the translated data cache mode, including K0.
+    return mode==7 && (s.config&0x10000U)!=0;
+}
+std::uint64_t accelerated_read(CacheState& s,Memory& memory,std::uint32_t pa,unsigned count) {
+    if(count==0 || count>8 || (pa&127U)+count>128)
+        throw std::invalid_argument("accelerated byte range crosses a line");
+    auto& buffer=s.accelerated;const auto base=pa&~127U;
+    if(!buffer.valid || buffer.base!=base) {
+        if(base>=Memory::ram_size && !(base>=Memory::boot_rom_base && base<0x20000000U))
+            throw std::invalid_argument("accelerated refill outside RAM/ROM is unsupported");
+        AcceleratedBuffer replacement;replacement.base=base;
+        // Stage the whole refill: unsupported tails must not install partial data.
+        for(unsigned n=0;n<128;++n) replacement.bytes[n]=static_cast<std::uint8_t>(memory.read(base+n,1));
+        replacement.valid=true;buffer=replacement;
+    }
+    std::uint64_t result=0;
+    for(unsigned n=0;n<count;++n) result|=std::uint64_t{buffer.bytes[(pa&127U)+n]}<<(n*8);
+    return result;
 }
 bool cache_enabled(const CacheState& s,unsigned mode,bool instruction) noexcept {
     return (mode==0 || mode==3) && (s.config&(instruction?0x20000U:0x10000U))!=0;

@@ -264,6 +264,7 @@ InstructionTrace Cpu::step(Memory& memory) {
                        (memory.hardware().int0() ? 0x400u : 0u) |
                        (memory.hardware().int1() ? 0x800u : 0u);
     const auto enter_exception = [&](unsigned code, std::optional<std::uint32_t> bad_address = {}, unsigned coprocessor = 0, bool refill = false) {
+        state_.cache.accelerated.valid=false;
         const bool use_refill = refill && (state_.cop0.status & 2U) == 0;
         auto& cop0 = state_.cop0;
         if ((cop0.status & 2u) == 0) {
@@ -320,6 +321,11 @@ InstructionTrace Cpu::step(Memory& memory) {
     const auto read_memory = [&](std::uint32_t address,unsigned width,Access access=Access::load,bool partial=false) {
         const auto target=translated(address,partial?1U:width,access);
         try {
+            if(state_.architectural_memory && access==Access::load) {
+                if(!target.scratchpad && accelerated_enabled(*active_cache,target.cache_mode))
+                    return accelerated_read(*active_cache,memory,target.address,width);
+                active_cache->accelerated.valid=false;
+            }
             if(state_.architectural_memory && !target.scratchpad && cache_enabled(*active_cache,target.cache_mode,access==Access::fetch))
                 return cache_read(*active_cache,memory,address,target.address,width,access==Access::fetch);
             return target.scratchpad?memory.read_scratchpad(target.address,width):
@@ -328,6 +334,7 @@ InstructionTrace Cpu::step(Memory& memory) {
     };
     const auto write_memory = [&](std::uint32_t address,unsigned width,std::uint64_t value,bool partial=false) {
         const auto target=translated(address,partial?1U:width,Access::store);
+        if(state_.architectural_memory) active_cache->accelerated.valid=false;
         try {
             if(target.scratchpad) memory.write_scratchpad(target.address,width,value);
             else if(state_.architectural_memory && cache_enabled(*active_cache,target.cache_mode,false))
@@ -528,10 +535,11 @@ InstructionTrace Cpu::step(Memory& memory) {
                 }
                 // All 32 stypes are defined: bit 4 selects L (0) or P (1).
                 // This in-order interpreter completes CPU accesses before retirement:
-                // RAM is committed and FIFO stores are accepted (or the store stalls).
+                // RAM/cache stores complete and FIFO stores are accepted (or stall).
                 // There are no pending CPU loads, write buffers or pipeline operations.
-                // Thus both barriers are already satisfied; device/DMA completion is
-                // not a CPU store completion requirement. Revisit when adding buffers.
+                // Device/DMA completion is not a CPU store completion requirement.
+                // SYNC.L also invalidates UCAB; SYNC.P preserves it.
+                if((shift&16U)==0) next.cache.accelerated.valid=false;
                 break;
             case 32: case 33: case 34: case 35:
                 if (shift != 0) { return unsupported(); }
@@ -1069,7 +1077,11 @@ InstructionTrace Cpu::step(Memory& memory) {
                 const auto target=translated(address,16,Access::load);
                 std::array<std::uint64_t,2> value{};
                 try {
-                    if(state_.architectural_memory && !target.scratchpad && cache_enabled(next.cache,target.cache_mode,false))
+                    const bool accelerated=state_.architectural_memory && !target.scratchpad && accelerated_enabled(next.cache,target.cache_mode);
+                    if(state_.architectural_memory && !accelerated) next.cache.accelerated.valid=false;
+                    if(accelerated)
+                        value={accelerated_read(next.cache,memory,target.address,8),accelerated_read(next.cache,memory,target.address+8,8)};
+                    else if(state_.architectural_memory && !target.scratchpad && cache_enabled(next.cache,target.cache_mode,false))
                         value={cache_read(next.cache,memory,address,target.address,8,false),cache_read(next.cache,memory,address+8,target.address+8,8,false)};
                     else value=target.scratchpad?std::array<std::uint64_t,2>{memory.read_scratchpad(target.address,8),memory.read_scratchpad(target.address+8,8)}:
                         memory.read_quadword(target.address);
@@ -1077,6 +1089,7 @@ InstructionTrace Cpu::step(Memory& memory) {
                 if (rt != 0) next.gpr[rt] = {value[0], value[1]};
             } else {
                 const auto target=translated(address,16,Access::store);
+                if(state_.architectural_memory) next.cache.accelerated.valid=false;
                 try {
                     if(target.scratchpad) {
                         memory.write_scratchpad(target.address,8,b);

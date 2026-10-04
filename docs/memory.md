@@ -16,14 +16,14 @@ p. 20, gives the external physical map and boot ROM window
 | Area | Current behavior | Required work |
 | --- | --- | --- |
 | Main RAM | 32 MiB, little endian, aligned and partial accesses; architectural CPU translation or explicit diagnostic identity profile | Independently establish mirrored/reserved behavior and full bus-error decode |
-| KSEG0/KSEG1 | `0x80000000–0xbfffffff` maps physical low 512 MiB in kernel mode | Functional Config.K0 caching implemented; physical timing and UCAB remain |
+| KSEG0/KSEG1 | `0x80000000–0xbfffffff` maps physical low 512 MiB in kernel mode | Functional Config.K0 caching implemented; physical timing and UCAB conformance remain |
 | KUSEG | ERL=1 kernel identity access; ERL=0 TLB translation in architectural mode | Cache/timing fidelity |
-| KSSEG/KSEG3 | ASID/TLB lookup and privilege permissions | Cache/translation timing and UCAB |
+| KSSEG/KSEG3 | ASID/TLB lookup and privilege permissions | Cache/translation timing and UCAB conformance |
 | Boot ROM | Host byte loading, reads/fetches at `0x1fc00000` and kernel aliases, explicit unsupported writes, snapshots | IOP ROM visibility and bus-write semantics remain |
 | Reset | Diagnostic reset remains available; `reset_boot_vector` enters `0xbfc00000`, sets ERL/BEV and clears BEM/Cause.EXC2 in the implemented subset | Random/Wired initialized to 47/0; Config/cache reset implemented; debug-control reset still required; coordinate IOP/device reset |
 | Scratchpad | 16 KiB selected by TLB EntryLo0.S, mapped on a 16-KiB boundary; CPU scalar/partial/quadword data paths and snapshots | Scratchpad DMA, contention, and instruction-fetch behavior |
 | TLB | 48 entries, register transfers, TLBR/TLBWI/TLBWR/TLBP, ASID/global matching, seven page sizes, valid/dirty exceptions and replacement state | Physical-cycle Random timing, pipeline hazards and independent hardware conformance |
-| Caches | Functional 16-KiB I / 8-KiB D caches, visibility/writeback, locking, Config controls and 14 CACHE operations | Instruction steering/BHT, BTAC, UCAB, physical timing and remaining conformance; [cache contract](cache.md) |
+| Caches | Functional 16-KiB I / 8-KiB D caches, visibility/writeback, locking, Config controls, 14 CACHE operations and a 128-byte UCAB | Instruction steering/BHT, BTAC, UCAB conformance/write gathering, physical timing and remaining conformance; [cache contract](cache.md) |
 | MMIO | Explicit documented device subsets | Complete device windows and access-width policies; retain explicit stops for unimplemented hardware |
 | Bus errors | Unsupported accesses stop the emulator | Distinguish actual guest bus errors from missing implementation using documented physical decode rules |
 | Firmware evidence | Bounded `--bios` CLI and original ROM guest; explicit unsupported-operation/access diagnostics | User-firmware asset identity, reproducible real boot progress, complete reset and hardware paths |

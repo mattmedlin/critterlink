@@ -30,7 +30,8 @@ instructions remain committed. A stop stays set until reset or debugger restore.
 An optional trace vector receives PC, raw opcode (absent on fetch failure),
 delay-slot status, retirement status, an optional dispatched exception code, a bus-stall flag, and any stop diagnostic for each CPU
 boundary. Traces append across runs; callers control their lifetime/size.
-No cycle accuracy, wall time, dual issue, caches, or pipeline stalls are modeled.
+No cycle accuracy, wall time, dual issue, or CPU pipeline stalls are modeled.
+Architectural execution has functional caches and an accelerated read buffer.
 The milestone 1 `Machine` input timeline is still separate from CPU stepping;
 `--ticks` does not execute instructions. Milestone 4 adds a coordinated `System`
 runner used by `--elf`; see [hardware-plan.md](hardware-plan.md). Direct
@@ -273,8 +274,7 @@ EE instructions from generic MIPS operations that the EE does not implement.
 
 ## PREF and SYNC (#16)
 
-PREF accepts all 32 hints and performs no data access in the current cacheless
-model. Invalid, unaligned, untranslated and device addresses do not cause a data
+PREF accepts all 32 hints and remains an ignored nonfaulting hint. Invalid, unaligned, untranslated and device addresses do not cause a data
 fault or device read. Instruction fetch and interrupt entry still follow the
 normal CPU boundary rules.
 
@@ -283,11 +283,12 @@ SYNC accepts all 32 stypes: bit 4 selects memory ordering (L) or pipeline orderi
 stops without committing state; an annulled slot is not executed.
 
 The interpreter completes each supported CPU operation before retirement. RAM
-stores are committed immediately; FIFO stores retire after queue acceptance, or
+stores complete in backing or the enabled data cache; FIFO stores retire after queue acceptance, or
 stall before a subsequent SYNC can execute. Both barriers are therefore already
 satisfied when reached. An accepted FIFO entry need not have been decoded, and
 SYNC does not wait for independent DMA or graphics work. This is an explicit
-functional abstraction, not a cache flush or cycle-accurate bus implementation.
+functional abstraction, not a data-cache flush or cycle-accurate bus implementation.
+SYNC/SYNC.L invalidate the accelerated read buffer; SYNC.P preserves it.
 Future pending loads, write buffers and asynchronous CPU operations must extend
 this contract before being enabled.
 

@@ -23,7 +23,8 @@ set. Even/odd page selection uses the page-size bit. Low PFN bits below the
 page size do not participate in the physical address. Valid/Dirty checks occur
 before the physical access. C=2/3/7 are accepted; reserved attributes stop.
 [Functional instruction/data caches](cache.md) now handle enabled cached
-accesses. UCAB and physical timing fidelity remain unimplemented.
+accesses. Mode-7 data loads use the functional UCAB; physical timing, write
+gathering and remaining buffer conformance are still open.
 
 | Fault | ExcCode | Vector with EXL clear, BEV clear/set |
 | --- | --- | --- |
