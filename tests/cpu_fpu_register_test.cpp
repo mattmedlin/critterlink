@@ -51,7 +51,7 @@ void disabled(){
   s.pc=slot?4:0;s.next_pc=slot?16:4;s.delay_slot=slot;s.branch_pc=0;s.gpr[1].low=0x2001;m.write(s.pc,4,instruction);m.write(0x2000,4,0x12345678);c.restore(s);
   auto t=c.step(m);auto e=s;e.cop0.status|=2;e.cop0.cause=0x1000002cU|(!nested&&slot?0x80000000U:0U);if(!nested)e.cop0.epc=0;
   e.pc=bev?0xbfc00380U:0x80000180U;e.next_pc=e.pc+4;e.delay_slot=false;e.branch_pc=0;
-  check(t.exception==11&&!t.retired&&!t.stop&&c.state()==e&&m.read(0x2000,4)==0x12345678,"COP1 unusable CE/EPC/BD/priority");
+  check(t.exception==11U&&!t.retired&&!t.stop&&c.state()==e&&m.read(0x2000,4)==0x12345678,"COP1 unusable CE/EPC/BD/priority");
  }
 }
 void invalid(){
