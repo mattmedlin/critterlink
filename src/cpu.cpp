@@ -20,6 +20,33 @@ bool signed_less(std::uint64_t a, std::uint64_t b) {
     return (a ^ sign) < (b ^ sign);
 }
 
+struct FpuArithmeticResult {
+    std::uint32_t bits;
+    std::uint32_t flags;
+};
+
+FpuArithmeticResult fpu_add(std::uint32_t left, std::uint32_t right) {
+    const auto left_exp = (left >> 23U) & 0xffU;
+    const auto right_exp = (right >> 23U) & 0xffU;
+    const auto exponent = left_exp > right_exp ? left_exp : right_exp;
+    const auto aligned = [exponent](std::uint32_t bits, unsigned exp) -> std::int64_t {
+        if (exp == 0 || exponent - exp >= 25) return 0;
+        const auto magnitude = (((bits & 0x007fffffU) | 0x00800000U) << 1U) >> (exponent - exp);
+        return (bits & 0x80000000U) != 0 ? -static_cast<std::int64_t>(magnitude) : magnitude;
+    };
+    // Retain one extra alignment bit, then normalize/truncate without host FP.
+    const auto sum = aligned(left, left_exp) + aligned(right, right_exp);
+    if (sum == 0) return {left & right & 0x80000000U, 0};
+    const auto sign = sum < 0 ? 0x80000000U : 0U;
+    auto magnitude = static_cast<std::uint32_t>(sum < 0 ? -sum : sum);
+    const auto top = 31 - std::countl_zero(magnitude);
+    const auto result_exp = static_cast<int>(exponent) + top - 24;
+    if (result_exp > 255) return {sign | 0x7fffffffU, 0x00008010U};
+    if (result_exp <= 0) return {sign, 0x00004008U};
+    magnitude = top > 23 ? magnitude >> (top - 23) : magnitude << (23 - top);
+    return {sign | (static_cast<std::uint32_t>(result_exp) << 23U) | (magnitude & 0x007fffffU), 0};
+}
+
 std::string hex32(std::uint32_t value) {
     std::ostringstream out;
     out << "0x" << std::hex << std::setfill('0') << std::setw(8) << value;
@@ -540,6 +567,16 @@ InstructionTrace Cpu::step(Memory& memory) {
             break;
         case 17: {
             if ((state_.cop0.status & 0x20000000U) == 0) return enter_exception(11, {}, 1);
+            if (rs == 16 && (function == 0 || function == 1 || function == 24 || function == 25)) {
+                const bool accumulator = function >= 24;
+                if (accumulator && shift != 0) return unsupported();
+                const auto right = state_.fpu.fpr[rt] ^ ((function & 1U) != 0 ? 0x80000000U : 0U);
+                const auto result = fpu_add(state_.fpu.fpr[rd], right);
+                if (accumulator) next.fpu.accumulator = result.bits;
+                else next.fpu.fpr[shift] = result.bits;
+                next.fpu.control = (state_.fpu.control & ~0x0000c000U) | result.flags;
+                break;
+            }
             if (rs == 16 && (function == 40 || function == 41)) {
                 const auto left = state_.fpu.fpr[rd];
                 const auto right = state_.fpu.fpr[rt];

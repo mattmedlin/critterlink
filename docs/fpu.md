@@ -1,14 +1,14 @@
 # EE floating-point support
 
 This implements COP1 register transport, conditional branches, comparisons,
-word conversions, sign operations and raw min/max selection. FPRs store raw 32-bit patterns; all
+word conversions, sign operations, raw min/max selection and add/subtract. FPRs store raw 32-bit patterns; all
 implemented operations use deterministic integer logic, not host floating-point
 conversion, NaN canonicalization or rounding.
 
 ## Instruction inventory
 
 The primary instruction manual's COP1 chapter (printed pages 342–379) lists
-34 instructions. Twenty-one have implemented architectural paths below; thirteen
+34 instructions. Twenty-five have implemented architectural paths below; nine
 remain explicit unsupported operations. This inventory counts instructions,
 not hardware fidelity, pipeline completion or milestone progress.
 
@@ -19,7 +19,7 @@ not hardware fidelity, pipeline completion or milestone progress.
 | C.EQ.S, C.F.S, C.LE.S, C.LT.S | 4 | Implemented EE comparisons | 349–352 |
 | CVT.S.W, CVT.W.S | 2 | Implemented integer-based conversions | 355–356 |
 | ABS.S, MOV.S, NEG.S | 3 | Implemented raw bit/sign behavior | 342, 366, 374 |
-| ADD.S, ADDA.S, SUB.S, SUBA.S | 4 | Unimplemented | 343–344, 377–378 |
+| ADD.S, ADDA.S, SUB.S, SUBA.S | 4 | Implemented integer significand arithmetic and flags | 343–344, 377–378 |
 | MUL.S, MULA.S | 2 | Unimplemented | 372–373 |
 | MADD.S, MADDA.S, MSUB.S, MSUBA.S | 4 | Unimplemented | 359–362, 367–370 |
 | MAX.S, MIN.S | 2 | Implemented raw operand selection | 363, 365 |
@@ -30,8 +30,8 @@ interlocks and hardware timing; FCR alias behavior remains restricted as below.
 
 ## State and instruction contract
 
-CPU/System snapshots include all 32 FPRs, a raw 32-bit accumulator reserved for
-later arithmetic, and FCR31. FPR0 is an ordinary writable floating-point register.
+CPU/System snapshots include all 32 FPRs, a raw 32-bit accumulator used by
+ADDA/SUBA, and FCR31. FPR0 is an ordinary writable floating-point register.
 Synthetic reset zeros the FPRs/accumulator and sets FCR31 to 0x01000001. This is
 a deterministic diagnostic initialization, not a claim about BIOS/reset boot.
 Invalid FCR31 snapshot fixed bits reject before replacing live CPU state.
@@ -47,14 +47,15 @@ Invalid FCR31 snapshot fixed bits reject before replacing live CPU state.
 
 Transfer encodings require bits 10–0 to be zero. FCR selectors other than 0 and
 31 remain explicit unsupported stops, even though published hardware tests show
-read aliases. General arithmetic and accumulator instructions remain unsupported when CU1
-is enabled.
+read aliases. Multiply, multiply-accumulate, divide and square-root instructions remain
+unsupported when CU1 is enabled.
 
 FCR0 is fixed to implementation/revision 0x00002e30, the profile observed in the
 published PS2 tests. This is not a claim that every physical revision is identical.
 FCR31 writable bits are C (23), I/D/O/U (17–14), and SI/SD/SO/SU (6–3): mask
 0x0083c078. Bits 24 and 0 always read one and other bits read zero. CTC1 replaces
-writable flag bits directly; arithmetic flag generation is not implemented yet.
+writable flag bits directly; ADD/SUB and their accumulator forms generate O/U
+and sticky SO/SU.
 All-one CTC1 input therefore reads back 0x0183c079. No FPU interrupt is invented.
 
 LWC1/SWC1 use signed immediate offsets, 32-bit effective addresses, four-byte
@@ -153,6 +154,41 @@ results, not an exhaustive physical-hardware measurement. The test suite uses
 explicit ordered bit patterns, all register triples, each writable flag bit,
 CU1 and delay/annul behavior, and original guest RAM/replay expectations. Wider
 physical-hardware conformance, including unmeasured operand pairs, remains work.
+
+## Add/subtract and accumulator results
+
+ADD.S/SUB.S write an FPR; ADDA.S/SUBA.S write ACC and require a zero reserved
+destination field. Exponent-zero inputs become signed zero, exponent 255 stays
+finite, and subtraction flips the right operand sign before addition. Integer
+significands retain one additional bit during exponent alignment, normalize,
+then truncate to the stored 24-bit precision. Bits below that alignment window
+are discarded rather than collected into a sticky rounding bit. This gives
+1.0 - 2^-24 = 0x3f7fffff, while 1.0 - 2^-25 remains 1.0 in this model.
+
+An exponent above 255 saturates to signed 0x7fffffff and sets O/SO. A nonzero
+result whose normalized exponent is below 1 flushes to signed zero and sets
+U/SU. Exact cancellation returns +0 without underflow; adding two negative
+zeros returns -0. Every operation replaces current O/U and accumulates sticky
+SO/SU, preserving C, I/D and SI/SD. ACC and FPR destinations are independently
+preserved as appropriate. There are no arithmetic guest traps or host FP casts.
+
+Primary instruction pages 343–344 and 377–378 specify destinations, flags and
+saturation. The Core manual pages 156, 163–165 describe the format, signed zeros
+and reduced precision. The published arithmetic result facts linked above are
+represented by 72 ADD/SUB vectors tested for both FPR and ACC destinations.
+The alignment model additionally follows the original reverse-engineering
+[normalization notes](https://wiki.pcsx2.net/PCSX2_Documentation/PS2_VU_%28Vector_Unit%29_Documentation_Part_1)
+crediting Nneeve's single-guard-bit finding. That evidence describes VU behavior
+and discusses EE similarity; exhaustive independent EE alignment conformance
+remains unproven. The new boundary expectations document the model explicitly,
+not newly measured hardware results. No external emulator implementation was
+imported. Multiplication and multiply-accumulate precision/overflow state remain
+separate work.
+
+`cpu_fpu_addsub` covers the published vectors, exact normal and exponent-limit
+results, both underflow signs, overflow, cancellation, retained/discarded alignment
+boundaries, flag accumulation, register aliases, CU1, reserved fields, delay/annul
+and original guest RAM/ACC results with full-System restoration.
 
 ## COP1 usability and exceptions
 

@@ -55,7 +55,7 @@ void disabled(){
  }
 }
 void invalid(){
- Memory m;Cpu c;std::vector<std::uint32_t> bad{cop(2,1,1),cop(6,1,16),0x46000000U};
+ Memory m;Cpu c;std::vector<std::uint32_t> bad{cop(2,1,1),cop(6,1,16),0x46000008U};
  for(unsigned mode:{0U,2U,4U,6U})for(unsigned bit=0;bit<11;++bit)bad.push_back(cop(mode,1,mode==2||mode==6?31:0)|(1U<<bit));
  for(auto op:bad){auto s=initial();m.write(0,4,op);c.restore(s);auto t=c.step(m);s.stop=c.state().stop;check(t.stop&&!t.retired&&!t.exception&&c.state()==s,"unsupported FPU encoding changed state");}
  auto s=initial();c.restore(s);for(auto value:{0U,0x01000003U,0xffffffffU}){auto badstate=s;badstate.fpu.control=value;bool rejected=false;try{c.restore(badstate);}catch(const std::invalid_argument&){rejected=true;}check(rejected&&c.state()==s,"invalid FCR snapshot atomicity");}
