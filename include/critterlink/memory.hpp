@@ -27,17 +27,24 @@ struct MemoryStall : std::runtime_error {
 struct MemoryState {
     std::vector<std::uint8_t> ram;
     HardwareState hardware;
+    std::vector<std::uint8_t> boot_rom;
     bool operator==(const MemoryState&) const = default;
 };
 
-// Bootstrap RAM plus explicitly supported EE MMIO. No TLB/cache/firmware yet.
+// Bootstrap RAM, boot ROM and supported EE MMIO. No TLB/cache implementation.
 class Memory {
 public:
     static constexpr std::size_t ram_size = 32 * 1024 * 1024;
+    static constexpr std::uint32_t boot_rom_base = 0x1fc00000U;
+    static constexpr std::size_t boot_rom_max_size = 4 * 1024 * 1024;
     Memory();
+    // Copies 1 byte through 4 MiB of caller-owned bytes; does not reset CPU, RAM or devices.
+    // Smaller images occupy only their supplied range; no invented padding.
+    void load_boot_rom(std::span<const std::uint8_t> bytes);
+    std::span<const std::uint8_t> boot_rom_bytes() const noexcept { return boot_rom_; }
     std::uint64_t read(std::uint32_t address, unsigned width, Access access = Access::load) const;
     void write(std::uint32_t address, unsigned width, std::uint64_t value);
-    // RAM-only byte-enabled accesses; validate the entire range before writing.
+    // Byte-enabled memory accesses; validate the entire range before writing.
     std::uint64_t read_partial(std::uint32_t address, unsigned count) const;
     void write_partial(std::uint32_t address, unsigned count, std::uint64_t value);
     // Aligned RAM accesses and GIF FIFO writes; a full FIFO throws MemoryStall.
@@ -56,9 +63,11 @@ public:
     void restore(const MemoryState& state);
 
 private:
-    std::size_t resolve(std::uint32_t address, unsigned width, Access access) const;
-    std::size_t resolve_range(std::uint32_t address, unsigned count, Access access) const;
+    struct Region { bool rom; std::size_t offset; };
+    Region resolve(std::uint32_t address, unsigned width, Access access) const;
+    Region resolve_range(std::uint32_t address, unsigned count, Access access) const;
     std::vector<std::uint8_t> ram_;
+    std::vector<std::uint8_t> boot_rom_;
     Hardware hardware_;
 };
 

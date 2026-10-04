@@ -36,8 +36,10 @@ void print_trace(const std::vector<critterlink::InstructionTrace>& trace) {
     std::cout << std::dec;
 }
 
-int run_elf(int argc, char** argv) {
-    constexpr auto usage = "Usage: critterlink --elf FILE [--steps N] [--trace] [--inspect ADDRESS]...\n";
+int run_image(int argc, char** argv, bool bios) {
+    const auto label = bios ? "Boot ROM" : "ELF";
+    const auto usage = bios ? "Usage: critterlink --bios FILE [--steps N] [--trace] [--inspect ADDRESS]...\n" :
+                              "Usage: critterlink --elf FILE [--steps N] [--trace] [--inspect ADDRESS]...\n";
     if (argc < 3) {
         std::cerr << usage;
         return 2;
@@ -74,28 +76,36 @@ int run_elf(int argc, char** argv) {
     }
     try {
         std::ifstream stream(argv[2], std::ios::binary | std::ios::ate);
-        if (!stream) { throw std::runtime_error("cannot open ELF file"); }
+        if (!stream) { throw std::runtime_error(std::string("cannot open ") + label + " file"); }
         const auto length = stream.tellg();
-        if (length < 0 || length > static_cast<std::streamoff>(critterlink::maximum_elf_size)) {
-            throw std::runtime_error("ELF file exceeds the 64 MiB limit or its size cannot be read");
+        const auto limit = bios ? critterlink::Memory::boot_rom_max_size : critterlink::maximum_elf_size;
+        if (length < 0 || length > static_cast<std::streamoff>(limit)) {
+            throw std::runtime_error(std::string(label) + " file exceeds its size limit or its size cannot be read");
         }
         std::vector<std::uint8_t> file(static_cast<std::size_t>(length));
         stream.seekg(0);
         if (!file.empty() && !stream.read(reinterpret_cast<char*>(file.data()), static_cast<std::streamsize>(file.size()))) {
-            throw std::runtime_error("cannot read complete ELF file");
+            throw std::runtime_error(std::string("cannot read complete ") + label + " file");
         }
         critterlink::System system;
         auto& memory = system.memory();
         auto& cpu = system.cpu();
+        if (bios) {
+            memory.load_boot_rom(file);
+            cpu.reset_boot_vector();
+            std::cout << "Boot ROM loaded: entry=0xbfc00000 file-bytes=" << file.size() << '\n';
+        } else {
+            const auto image = critterlink::load_elf(file, memory, cpu);
+            std::cout << "ELF loaded: entry=0x" << std::hex << std::setfill('0') << std::setw(8) << image.entry
+                      << std::dec << " segments=" << image.segments << " file-bytes=" << image.file_bytes
+                      << " memory-bytes=" << image.memory_bytes << '\n';
+        }
         for (const auto address : inspect) { memory.read(address, 4); }
-        const auto image = critterlink::load_elf(file, memory, cpu);
-        std::cout << "ELF loaded: entry=0x" << std::hex << std::setfill('0') << std::setw(8) << image.entry
-                  << std::dec << " segments=" << image.segments << " file-bytes=" << image.file_bytes
-                  << " memory-bytes=" << image.memory_bytes << '\n';
+        std::cout << std::setfill('0');
         std::vector<critterlink::InstructionTrace> trace;
         const auto result = system.run(steps, tracing ? &trace : nullptr);
         print_trace(trace);
-        std::cout << "ELF run: retired=" << result.retired << " pc=0x" << std::hex << std::setw(8) << cpu.state().pc
+        std::cout << label << " run: retired=" << result.retired << " pc=0x" << std::hex << std::setw(8) << cpu.state().pc
                   << (result.budget_exhausted ? " budget-exhausted\n" : " stopped\n");
         for (const auto address : inspect) {
             std::cout << "inspect[0x" << std::setw(8) << address << "]=0x"
@@ -112,7 +122,7 @@ int run_elf(int argc, char** argv) {
         }
         return 0;
     } catch (const std::exception& error) {
-        std::cerr << "ELF run failed: " << error.what() << '\n';
+        std::cerr << label << " run failed: " << error.what() << '\n';
         return 1;
     }
 }
@@ -166,6 +176,7 @@ int main(int argc, char** argv) {
                                               "       critterlink --io-demo\n"
                                               "       critterlink --integrated-demo\n"
                                               "       critterlink --elf FILE [--steps N] [--trace] [--inspect ADDRESS]...\n"
+                                              "       critterlink --bios FILE [--steps N] [--trace] [--inspect ADDRESS]...\n"
                                               "       critterlink --help\n";
     critterlink::Tick ticks = 0;
     if (argc == 2 && std::string_view(argv[1]) == "--integrated-demo") {
@@ -273,8 +284,11 @@ int main(int argc, char** argv) {
             return 1;
         }
     }
+    if (argc >= 2 && std::string_view(argv[1]) == "--bios") {
+        return run_image(argc, argv, true);
+    }
     if (argc >= 2 && std::string_view(argv[1]) == "--elf") {
-        return run_elf(argc, argv);
+        return run_image(argc, argv, false);
     }
     if (argc >= 2 && std::string_view(argv[1]) == "--demo") {
         return run_demo(argc, argv);

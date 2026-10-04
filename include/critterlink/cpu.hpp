@@ -80,6 +80,9 @@ public:
     explicit Cpu(std::uint32_t entry = 0) noexcept;
     const CpuState& state() const noexcept;
     void reset(std::uint32_t entry = 0) noexcept;
+    // EE boot vector and defined reset bits in the implemented COP0 subset.
+    // Other reset registers/cache/IOP initialization remain separate work.
+    void reset_boot_vector() noexcept;
     // Debugger/test state import; enforces r0 and rejects unsupported Status modes.
     void restore(CpuState state);
     InstructionTrace step(Memory& memory);

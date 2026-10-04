@@ -13,7 +13,15 @@ MemoryFault::MemoryFault(MemoryError reason_value, Access access_value, std::uin
 
 Memory::Memory() : ram_(ram_size) {}
 
-std::size_t Memory::resolve(std::uint32_t address, unsigned width, Access access) const {
+void Memory::load_boot_rom(std::span<const std::uint8_t> bytes) {
+    if (bytes.empty() || bytes.size() > boot_rom_max_size) {
+        throw std::invalid_argument("boot ROM must contain 1 through 4194304 bytes");
+    }
+    std::vector<std::uint8_t> replacement(bytes.begin(), bytes.end());
+    boot_rom_ = std::move(replacement);
+}
+
+Memory::Region Memory::resolve(std::uint32_t address, unsigned width, Access access) const {
     if (width != 1 && width != 2 && width != 4 && width != 8 && width != 16) {
         throw std::invalid_argument("invalid aligned RAM width");
     }
@@ -23,7 +31,7 @@ std::size_t Memory::resolve(std::uint32_t address, unsigned width, Access access
     return resolve_range(address, width, access);
 }
 
-std::size_t Memory::resolve_range(std::uint32_t address, unsigned count, Access access) const {
+Memory::Region Memory::resolve_range(std::uint32_t address, unsigned count, Access access) const {
     auto physical = address;
     const bool direct = address >= 0x80000000u && address < 0xc0000000u;
     if (direct) {
@@ -33,33 +41,43 @@ std::size_t Memory::resolve_range(std::uint32_t address, unsigned count, Access 
         throw MemoryFault(MemoryError::device, access, address,
                           "this partial or quadword MMIO access is not implemented");
     }
+    if (physical >= boot_rom_base && physical < boot_rom_base + boot_rom_max_size) {
+        const auto offset = physical - boot_rom_base;
+        if (offset >= boot_rom_.size() || count > boot_rom_.size() - offset) {
+            throw MemoryFault(MemoryError::unmapped, access, address, "boot ROM bytes are not loaded for this range");
+        }
+        if (access == Access::store) {
+            throw MemoryFault(MemoryError::device, access, address, "boot ROM writes are unsupported");
+        }
+        return {true, offset};
+    }
     if (!direct && address >= ram_size) {
         throw MemoryFault(MemoryError::translation, access, address);
     }
     if (physical >= ram_size || count > ram_size - physical) {
         throw MemoryFault(MemoryError::unmapped, access, address);
     }
-    return physical;
+    return {false, physical};
 }
 
 std::uint64_t Memory::read_partial(std::uint32_t address, unsigned count) const {
     if (count == 0 || count > 8) { throw std::invalid_argument("partial access requires 1 to 8 bytes"); }
-    const auto offset = resolve_range(address, count, Access::load);
+    const auto region = resolve_range(address, count, Access::load);
     std::uint64_t value = 0;
-    for (unsigned i = 0; i < count; ++i) value |= std::uint64_t{ram_[offset + i]} << (i * 8);
+    for (unsigned i = 0; i < count; ++i) value |= std::uint64_t{(region.rom ? boot_rom_ : ram_)[region.offset + i]} << (i * 8);
     return value;
 }
 
 void Memory::write_partial(std::uint32_t address, unsigned count, std::uint64_t value) {
     if (count == 0 || count > 8) { throw std::invalid_argument("partial access requires 1 to 8 bytes"); }
-    const auto offset = resolve_range(address, count, Access::store);
-    for (unsigned i = 0; i < count; ++i) ram_[offset + i] = static_cast<std::uint8_t>(value >> (i * 8));
+    const auto region = resolve_range(address, count, Access::store);
+    for (unsigned i = 0; i < count; ++i) ram_[region.offset + i] = static_cast<std::uint8_t>(value >> (i * 8));
 }
 
 std::array<std::uint64_t, 2> Memory::read_quadword(std::uint32_t address) const {
-    const auto offset = resolve(address, 16, Access::load);
+    const auto region = resolve(address, 16, Access::load);
     std::array<std::uint64_t, 2> value{};
-    for (unsigned i = 0; i < 16; ++i) value[i / 8] |= std::uint64_t{ram_[offset + i]} << ((i % 8) * 8);
+    for (unsigned i = 0; i < 16; ++i) value[i / 8] |= std::uint64_t{(region.rom ? boot_rom_ : ram_)[region.offset + i]} << ((i % 8) * 8);
     return value;
 }
 
@@ -77,8 +95,8 @@ void Memory::write_quadword(std::uint32_t address, const std::array<std::uint64_
         }
         return;
     }
-    const auto offset = resolve(address, 16, Access::store);
-    for (unsigned i = 0; i < 16; ++i) ram_[offset + i] = static_cast<std::uint8_t>(value[i / 8] >> ((i % 8) * 8));
+    const auto region = resolve(address, 16, Access::store);
+    for (unsigned i = 0; i < 16; ++i) ram_[region.offset + i] = static_cast<std::uint8_t>(value[i / 8] >> ((i % 8) * 8));
 }
 
 std::uint64_t Memory::read(std::uint32_t address, unsigned width, Access access) const {
@@ -92,10 +110,10 @@ std::uint64_t Memory::read(std::uint32_t address, unsigned width, Access access)
         try { return hardware_.read(physical); }
         catch (const std::invalid_argument& error) { throw MemoryFault(MemoryError::device, access, address, error.what()); }
     }
-    const auto offset = resolve(address, width, access);
+    const auto region = resolve(address, width, access);
     std::uint64_t value = 0;
     for (unsigned i = 0; i < width; ++i) {
-        value |= std::uint64_t{ram_[offset + i]} << (i * 8);
+        value |= std::uint64_t{(region.rom ? boot_rom_ : ram_)[region.offset + i]} << (i * 8);
     }
     return value;
 }
@@ -112,21 +130,24 @@ void Memory::write(std::uint32_t address, unsigned width, std::uint64_t value) {
         catch (const std::invalid_argument& error) { throw MemoryFault(MemoryError::device, Access::store, address, error.what()); }
         return;
     }
-    const auto offset = resolve(address, width, Access::store);
+    const auto region = resolve(address, width, Access::store);
     for (unsigned i = 0; i < width; ++i) {
-        ram_[offset + i] = static_cast<std::uint8_t>(value >> (i * 8));
+        ram_[region.offset + i] = static_cast<std::uint8_t>(value >> (i * 8));
     }
 }
 
 void Memory::clear() noexcept { std::fill(ram_.begin(), ram_.end(), std::uint8_t{0}); }
 std::span<const std::uint8_t> Memory::bytes() const noexcept { return ram_; }
 
-MemoryState Memory::state() const { return {ram_, hardware_.state()}; }
+MemoryState Memory::state() const { return {ram_, hardware_.state(), boot_rom_}; }
 void Memory::restore(const MemoryState& state) {
     if (state.ram.size() != ram_size) { throw std::invalid_argument("snapshot RAM must contain exactly 32 MiB"); }
+    if (state.boot_rom.size() > boot_rom_max_size) { throw std::invalid_argument("snapshot boot ROM exceeds 4 MiB"); }
+    auto replacement_rom = state.boot_rom;
     auto replacement_ram = state.ram;
     Hardware replacement_hardware = hardware_;
     replacement_hardware.restore(state.hardware);
+    boot_rom_ = std::move(replacement_rom);
     ram_ = std::move(replacement_ram);
     hardware_ = std::move(replacement_hardware);
 }

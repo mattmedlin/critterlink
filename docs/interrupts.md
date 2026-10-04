@@ -12,7 +12,9 @@ and unsupported registers fail explicitly. Supported Status bits are IE (0),
 EXL (1), ERL (2), IM0/IM1 (10/11), EIE (16), BEV (22), and CU1 (29). Writes and snapshots
 with other Status bits are rejected; user/supervisor modes, Count/Compare,
 performance interrupts, EI/DI and other COP0 operations remain unsupported.
-Synthetic reset starts with Status zero, not the hardware reset configuration.
+Synthetic `reset(entry)` starts with Status zero. `reset_boot_vector()` sets
+BEV/ERL and enters boot ROM, but does not initialize the unimplemented reset
+registers or IOP; see [memory/reset](memory.md).
 MTC0 effects are immediately visible at the next boundary in this interpreter;
 the EE pipeline's COP0 hazards and SYNC.P requirements are not modeled.
 
@@ -41,8 +43,9 @@ ERET immediately returns through ErrorEPC and clears ERL when ERL is set;
 otherwise it returns through EPC and clears EXL. It has no delay slot. ERET in a
 delay slot is rejected. Returning to a branch saved with BD restarts the branch
 and its delay slot; a handler skipping a fault must deliberately adjust EPC.
-BEV vector selection is tested, but boot ROM is not mapped, so fetching a BEV
-handler subsequently stops as unsupported access.
+BEV vectors execute from loaded boot ROM. If the required ROM bytes are absent,
+fetching a BEV handler stops as unsupported access. An original ROM guest tests
+syscall entry and handler execution; this does not establish real firmware boot.
 
 Unimplemented instructions and translation/devices are emulator limitations:
 they still produce sticky host stops, not invented guest exceptions. Ordinary

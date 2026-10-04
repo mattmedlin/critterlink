@@ -235,6 +235,10 @@ void Cpu::reset(std::uint32_t entry) noexcept {
     state_.pc = entry;
     state_.next_pc = entry + 4u;
 }
+void Cpu::reset_boot_vector() noexcept {
+    reset(0xbfc00000U);
+    state_.cop0.status = 0x00400004U; // BEV and ERL; BEM and Cause.EXC2 clear.
+}
 void Cpu::restore(CpuState state) {
     if ((state.cop0.status & ~0x20410c07u) != 0) {
         throw std::invalid_argument("unsupported COP0 Status mode in snapshot");
