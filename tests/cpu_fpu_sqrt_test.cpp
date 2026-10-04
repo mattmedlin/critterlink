@@ -12,6 +12,11 @@ void result(Memory& m,Cpu& cpu,std::uint32_t input,std::uint32_t output,unsigned
  auto s=initial();s.fpu.fpr[ft]=input;auto expected=s;expected.pc=4;expected.next_pc=8;expected.fpu.fpr[fd]=output;
  expected.fpu.control=(input&0x80000000U)!=0?0x0182c079U:0x0180c039U;
  m.write(0,4,op(ft,fd));cpu.restore(s);auto t=cpu.step(m);
+ if(!(t.retired&&!t.stop&&!t.exception&&cpu.state()==expected)) {
+  std::cerr<<std::hex<<"input="<<input<<" expected="<<output<<" actual="<<cpu.state().fpu.fpr[fd]
+           <<" expected flags="<<expected.fpu.control<<" actual flags="<<cpu.state().fpu.control
+           <<std::dec<<" ft="<<ft<<" fd="<<fd<<'\n';
+ }
  check(t.retired&&!t.stop&&!t.exception&&cpu.state()==expected,"SQRT result, flags or preserved state");
 }
 void vectors(){
