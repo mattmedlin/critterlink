@@ -747,3 +747,32 @@ alongside broader architectural/hardware work, remain open in #17 and #4.
 [GitHub Actions run 37227098556](https://github.com/mattmedlin/critterlink/actions/runs/37227098556)
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `bbf7c26`. No platform-specific repairs were needed.
+
+## EE FPU add/subtract and accumulator forms
+
+On October 4, 2026, all 49 local Apple Silicon suites passed Debug, Release and
+ASan/UBSan (154.81, 11.15 and 321.15 seconds respectively) for `00946d8`.
+ADD.S/SUB.S and ADDA.S/SUBA.S now use integer significand alignment and
+normalization, signed-zero and exponent-zero rules, finite exponent 255,
+saturation/flush on exponent overflow/underflow, current O/U replacement and
+sticky SO/SU accumulation. Non-destination FPRs/ACC and unrelated flags survive.
+
+The suite encodes 72 published ADD/SUB result vectors and checks both FPR and
+ACC forms, plus literal exponent-limit, cancellation, signed-zero, flag,
+aliasing, CU1, reserved-field and delay/annul cases. An original guest checks
+ACC updates and stores literal FPR results to RAM, then reproduces full System
+state and traces after restoration. A prior unsupported-opcode test was changed
+from the now-implemented ADD.S to a reserved function.
+
+Research during implementation distinguished one retained alignment bit from
+an earlier no-extra-bit candidate, despite both passing the basic published
+vectors. Explicit distance-24/25 tests now distinguish those models. The
+[FPU contract](fpu.md) links the original reverse-engineering notes and clearly
+states the evidence limit: those notes describe VU behavior and EE similarity,
+not exhaustive independent EE measurements. Precision conformance remains work;
+this batch does not claim full hardware fidelity or pipeline timing. No external
+emulator implementation or proprietary asset was imported. #17 and #4 stay open.
+
+[GitHub Actions run 37228270881](https://github.com/mattmedlin/critterlink/actions/runs/37228270881)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`00946d8`. No platform-specific repairs were needed.
