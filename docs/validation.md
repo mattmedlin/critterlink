@@ -644,3 +644,29 @@ hardware remain unimplemented. #17 and #4 remain open.
 [GitHub Actions run 37223190208](https://github.com/mattmedlin/critterlink/actions/runs/37223190208)
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `9d46472`, including the repaired Windows Debug build.
+
+## COP1 conditional and likely branches
+
+On October 4, 2026, all 45 local Apple Silicon suites passed Debug, Release and
+ASan/UBSan (153.75, 11.96 and 304.18 seconds respectively) for `2638b4a`.
+BC1F/BC1T and BC1FL/BC1TL now sample FCR31.C, compute signed PC-relative targets,
+execute ordinary delay slots and annul untaken likely slots. A delay-slot CTC1
+cannot change a destination already sampled by the branch. CU1 gating and the
+existing explicit nested-branch restriction remain in effect.
+
+The new `cpu_fpu_branch` suite covers all four forms and both condition values,
+zero/positive/negative and extreme signed offsets, preserved state, executed and
+annulled slots, slot exceptions with EPC/BD, disabled COP1 exception priority,
+reserved selectors, condition sampling and CPU replay. An original guest uses
+CTC1 and taken/fallthrough/annulled paths to store the literal result 3 in RAM;
+restoring a pending-branch System snapshot reproduces traces and complete state.
+Existing integrated and CLI checks passed.
+
+The implementation follows the primary instruction manual, printed pages
+345–348; [FPU coverage](fpu.md) records the contract and restrictions. This adds
+architectural branch behavior, not pipeline timing or floating-point comparison
+and arithmetic execution. #17 and #4 remain open.
+
+[GitHub Actions run 37224291381](https://github.com/mattmedlin/critterlink/actions/runs/37224291381)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`2638b4a`. No platform-specific repairs were needed.
