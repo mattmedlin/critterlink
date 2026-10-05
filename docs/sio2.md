@@ -105,6 +105,11 @@ packet replay, both ports, exported-image remount/readback, programming and eras
 read-only/absent/checksum/bounds errors, fixed FIFO capacity and atomic restore.
 The integrated fixture uses real IOP SB/LBU/SW/LW instructions and scheduled input.
 
+SIO2 completion now feeds IOP INTC bit 17 and guest CPU IP2 dispatch. The device
+flag and I_STAT require separate acknowledgements. The `iop_intc` suite starts a
+pad poll from guest code and services its exception; see the [IOP interrupt
+contract](iop.md#iop-interrupt-controller) for edge and timing limits.
+
 ## Sources
 
 Register addresses and protocol baseline come from original

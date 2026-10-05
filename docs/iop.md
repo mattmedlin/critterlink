@@ -65,10 +65,46 @@ RFE in its delay slot. Unknown/unimplemented instructions and devices still stop
 rather than masquerading as architectural RI or bus-error exceptions.
 
 Software interrupt bits and an explicit external IP2 line participate in Status
-mask/IE arbitration before fetch. `set_interrupt_line` supplies that line; it is
-not yet connected to a complete IOP INTC or peripheral interrupt router. Entry
+mask/IE arbitration before fetch. The integrated IOP INTC supplies IP2 from
+CDVD, SIF DMA and SIO2; see the register and edge contract below. Entry
 preserves pending sources and clears current IE. Acknowledgement must remove the
 source. External recognition latency and pipeline timing are not modeled.
+
+## IOP interrupt controller
+
+`IopIntc` implements word accesses to physical I_STAT `1f801070`, I_MASK
+`1f801074` and I_CTRL `1f801078`, plus byte access to I_CTRL. I_STAT latches
+rising source edges regardless of masks; writing zero acknowledges each selected
+bit. I_MASK replaces the enabled-source mask. I_CTRL bit 0 gates the combined
+output; reading it returns its previous value and disables the gate. Reads into
+register zero retain this side effect, and loads retain the IOP load delay.
+Bits 26–31 read zero/ignore writes as a deterministic choice for unspecified bits.
+Other subword accesses remain unsupported pending IOP-specific bus evidence;
+PS1 partial writes cannot safely be assumed to preserve adjacent lanes.
+
+The integrated sources are CDVD command completion/error (bit 2), the existing
+SIF DMA master signal (bit 3), and SIO2 transfer completion (bit 17). The output
+is level-driven into Cause.IP2 (bit 10), with CPU IEc/IM2 as separate gates. Clear
+the controller latch and the peripheral's own flag separately. A source held
+high does not relatch merely because I_STAT was cleared. Dropping and raising
+the source again creates a new edge. Disabling delivery preserves pending status.
+
+Hardware samples before IOP execution, after its bus operation, and after device
+service. This retains a falling acknowledgement followed by completion within a
+logical tick; resulting guest delivery occurs at the next IOP boundary. No
+physical propagation latency or EE/IOP ratio is claimed. Snapshot state includes
+source levels as well as status, mask and global enable, so restoration does not
+invent a rising edge. Direct host device mutations are sampled on the next
+nonzero hardware advance. A zero-tick advance does not sample or dispatch.
+
+References: [ps2tek IOP interrupts](https://psi-rockin.github.io/ps2tek/#iopinterrupts)
+for registers/source assignments; [PSX-SPX interrupt observations](https://psx-spx.consoledev.net/ps1/system/interrupts/)
+for edge latching, acknowledgements and IP2; and [PS2SDK intrman](https://github.com/ps2dev/ps2sdk/blob/master/iop/system/intrman/src/intrman.c)
+for word I_CTRL suspend/resume usage. PSX-SPX describes the IOP as the expanded
+PS1 controller; applying its edge behavior is the current platform model, still
+requiring independent PS2 hardware conformance. The ps2tek prose labels Cause
+with bit 8; the implementation uses bit 10, consistent with the R3000 external
+IP2 input and PSX-SPX. No external implementation code was imported.
 
 ## Memory, reset and snapshots
 
@@ -109,9 +145,19 @@ handler reads EPC, advances it, returns with JR/RFE and stores expected RAM word
 A full-System checkpoint inside its pending MFC0 reproduces subsequent state and
 traces even after replacing and restoring the ROM image.
 
+`iop_intc` checks all controller source positions, four independent delivery gates,
+I_CTRL side effects including load-to-zero, held-line acknowledgement, edge-history
+restore and malformed snapshots. Original IOP guests start a real modeled CDVD
+sector read, SIF transfer or SIO2 pad transaction, service the resulting exception,
+acknowledge both levels and return through JR/RFE. Pending and in-handler full
+System checkpoints reproduce final state and EE traces under split budgets.
+A DMA regression acknowledges an old completion on the exact logical tick of a
+new completion and checks that the second edge survives, including replay.
+These original tests do not establish independent firmware or silicon conformance.
+
 Remaining #19 work includes instruction/exception conformance, zero-divisor and
 load bypass corner cases, architectural RI/bus errors, cache/reset/control decode,
-PRId/debug registers, full IOP INTC and device routing, timers, DMA channels,
+PRId/debug registers, remaining INTC access widths and source routing, timers, DMA channels,
 physical clock ratios and in-flight pipeline work. Independent homebrew and real
 firmware evidence are also required. No proprietary firmware or external emulator
 implementation was imported.

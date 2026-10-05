@@ -82,7 +82,8 @@ words and sends the result back through SIF DMA, also publishing it in a shared
 mailbox. Expected: `ticks=223 response=40 exchange-completed=1 replay=identical`.
 See the [IOP CPU subset](docs/iop.md) and [SIF transport](docs/sif.md). The IOP is
 started explicitly for this fixture; this does not boot firmware or implement
-SIFRPC or IOP interrupt dispatch.
+SIFRPC. Separate `iop_intc` tests exercise guest interrupt handlers for SIF DMA,
+CDVD and SIO2 completion, including full-state replay.
 
 The register-driven audio diagnostic is available with `./build/critterlink --spu-demo`.
 An IOP program uploads an original ADPCM block through SPU2 transfer registers,

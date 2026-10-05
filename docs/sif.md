@@ -23,8 +23,10 @@ memory buses perform their normal uncached/cached segment alias translation.
 The EE's existing D_CTRL gates its endpoints. Completion clears STR and latches
 D_STAT channel 5 or 6 through the containing hardware. IOP completion clears
 CHCR's transfer bit; DICR2 flags latch when the corresponding channel enable is
-set. Master and channel enables gate `iop_irq()`. IOP CPU interrupt dispatch remains
-outside this transport: guest code polls CHCR/DICR2 in this diagnostic.
+set. Master and channel enables gate `iop_irq()`. The integrated IOP INTC now
+latches its rising edge at bit 3 and supplies CPU IP2. Guest handlers acknowledge
+I_STAT and DICR2 separately; the original transport diagnostic still polls.
+See the [IOP interrupt contract](iop.md#iop-interrupt-controller).
 
 IOP transfers require 32-word blocks with a nonzero 16-bit block count, as used
 by PS2SDK's normal-transfer functions. For example, `BCR=00010020` sends or receives

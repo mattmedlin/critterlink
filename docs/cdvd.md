@@ -23,7 +23,8 @@ sector count, retry count zero, spindle value one, and 2048-byte data pattern ze
 One sector uses BCR `00100020` and CHCR `41000200`. Program DMA, enqueue parameters,
 then issue ReadCD. Completion clears DMA's start bit, decrements BCR's block count,
 and raises the CDVD completion flag. The guest can poll or acknowledge that flag;
-IOP interrupt dispatch is not implemented.
+the integrated [IOP controller](iop.md#iop-interrupt-controller) routes it through
+I_STAT bit 2 to guest exception handlers. DMA3 DICR completion routing is still missing.
 
 The API and register constants were checked against original SDK code:
 [PS2SDK cdvdman.c](https://ps2dev.github.io/ps2sdk/cdvdman_8c_source.html)
@@ -35,7 +36,7 @@ The following are explicitly diagnostic policies: a transfer advances sixteen
 bytes per logical system tick, there is no seek/spin-up latency, only the listed
 format and speed are accepted, and the error remains latched until another
 command. This device models channel3's enable nibble without a complete shared
-IOP DMAC controller or interrupt controller. It does not claim calibrated drive
+IOP DMAC controller. It does not claim calibrated drive
 timing, full DMA arbitration, disc authentication, ISO filesystem access, DVD
 sector framing, audio playback, tray commands or an SCMD processor.
 

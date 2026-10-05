@@ -4,6 +4,7 @@
 #include "critterlink/scheduler.hpp"
 #include "critterlink/vector.hpp"
 #include "critterlink/iop.hpp"
+#include "critterlink/iop_intc.hpp"
 #include "critterlink/sif.hpp"
 #include "critterlink/spu.hpp"
 #include "critterlink/sio2.hpp"
@@ -53,6 +54,7 @@ struct HardwareState {
     Sio2State sio2;
     CdvdState cdvd;
     GifFifoState gif_fifo;
+    IopIntcState iop_intc;
     bool operator==(const HardwareState&) const = default;
 };
 
@@ -83,6 +85,7 @@ public:
     const GraphicsState& graphics() const noexcept { return graphics_.state(); }
 
 private:
+    void sample_iop_interrupts();
     void tick_timers();
     void tick_vif_dma(std::span<const std::uint8_t> ram);
     void tick_dma(std::span<const std::uint8_t> ram);
@@ -96,6 +99,7 @@ private:
     VifDmaState vif_dma_;
     VectorUnit vector_;
     Iop iop_;
+    IopIntc iop_intc_;
     Sif sif_;
     Spu spu_;
     Sio2 sio2_;
