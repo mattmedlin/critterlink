@@ -49,7 +49,7 @@ void arithmetic() {
     iop.write32(8,0);iop.write32(12,0);iop.write32(16,special(19,1,0,0));iop.write32(20,special(18,0,0,5));
     for(unsigned n=0;n<5;++n)check(iop.step(),"spaced HI/LO transfers retire");
     check(iop.state().gpr[4]==0x87654321 && iop.state().gpr[5]==0x87654321,"HI/LO transfers");
-    prepare(iop,special(26,1,2,0),1,0);const auto saved=iop.state();check(!iop.step() && iop.state().stop && iop.state().hi==saved.hi && iop.state().lo==saved.lo,"unverified zero divisor stops atomically");
+    prepare(iop,special(26,1,2,0),1,0);check(iop.step() && !iop.state().stop && iop.state().hi==1 && iop.state().lo==0xffffffff,"IOP zero divisor hardware result");
 }
 void branches() {
     Iop iop;

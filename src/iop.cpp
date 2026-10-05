@@ -185,8 +185,8 @@ bool Iop::step(IopBus* bus) {
                     const auto product=fn==24?static_cast<std::uint64_t>(signed_word(left)*signed_word(right)):std::uint64_t{left}*right;
                     lo=static_cast<std::uint32_t>(product);hi=static_cast<std::uint32_t>(product>>32U);
                 } else {
-                    if(right==0)throw std::invalid_argument("IOP divide-by-zero hardware result unverified");
-                    if(fn==26) {lo=static_cast<std::uint32_t>(signed_word(left)/signed_word(right));hi=static_cast<std::uint32_t>(signed_word(left)%signed_word(right));}
+                    if(right==0) {hi=left;lo=fn==26 && (left&0x80000000U)!=0?1U:0xffffffffU;}
+                    else if(fn==26) {lo=static_cast<std::uint32_t>(signed_word(left)/signed_word(right));hi=static_cast<std::uint32_t>(signed_word(left)%signed_word(right));}
                     else {lo=left/right;hi=left%right;}
                 }
                 break;

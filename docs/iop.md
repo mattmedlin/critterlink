@@ -23,8 +23,10 @@ not verified PS2 firmware boot. Issue #19 remains open.
 Register zero remains zero. Signed ADD/ADDI/SUB detect overflow even when the
 destination is zero; unsigned forms wrap. Multiply/divide update both HI/LO halves
 immediately. Signed division truncates toward zero; signed minimum divided by -1
-produces low word 0x80000000 and remainder zero without a host overflow. Zero
-divisors remain explicit unsupported stops pending IOP-specific hardware results.
+produces low word 0x80000000 and remainder zero without a host overflow. For a zero
+divisor, HI receives the dividend. DIV sets LO to 1 for a negative dividend or
+0xffffffff otherwise; DIVU always sets LO to 0xffffffff. Neither raises a divide
+exception. These IOP-specific results follow published PS2 observations below.
 Multiply/divide latency, interlocks and the MFHI/MFLO write-spacing hazard are not
 modeled. The operation paths do not establish complete physical CPU conformance.
 
@@ -155,7 +157,7 @@ A DMA regression acknowledges an old completion on the exact logical tick of a
 new completion and checks that the second edge survives, including replay.
 These original tests do not establish independent firmware or silicon conformance.
 
-Remaining #19 work includes instruction/exception conformance, zero-divisor and
+Remaining #19 work includes instruction/exception conformance and
 load bypass corner cases, architectural RI/bus errors, cache/reset/control decode,
 PRId/debug registers, remaining INTC access widths and source routing, timers, DMA channels,
 physical clock ratios and in-flight pipeline work. Independent homebrew and real
@@ -166,3 +168,24 @@ Primary reference: manufacturer-authored [IDT R30xx Family Software Reference
 Manual, revision 1.0](https://student.cs.uwaterloo.ca/~cs350/common/r3000-manual.pdf),
 chapters 2–4 and appendix A. It supplies the MIPS-I execution/exception foundation;
 PS2-specific memory/peripheral controls require additional platform evidence.
+
+
+## Independent multiply/divide observations
+
+`iop_arithmetic` checks all 108 numeric DIV/DIVU/MULT/MULTU observations in
+[ps2autotests IOP muldiv.expected](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/iop/muldiv.expected),
+using operands from [muldiv.c](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/iop/muldiv.c)
+at revision `97469ffbed8631277b94e28d01dabd702aa97ef3`. Named array inputs use
+only their first u32, as in that IOP test. Results are stored as literal numeric
+vectors; the emulator does not generate its own expected quotients/products.
+The upstream divide probes explicitly emit opcodes to avoid assembler-generated
+zero-divisor traps. The repository describes these `.expected` files as results
+captured from PS2 hardware; this project did not run new console measurements.
+
+Our original harness runs both diagnostic and architectural profiles, checks full
+IOP state preservation and older pending-load operand timing, and checks zero
+registers, taken/untaken delay slots and reserved-field rejection. An original
+scheduled EE/IOP guest stores zero-divisor HI/LO results to RAM; restoring after
+its first divide reproduces full System state and EE traces with split budgets.
+This tests observed numerical behavior, not the upstream IRX module, multiply/
+divide cycle latency, interruptibility, interlocks or full IOP conformance.
