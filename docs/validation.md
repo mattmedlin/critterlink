@@ -1071,3 +1071,27 @@ were used. This does not complete #19 or milestone #4.
 [GitHub Actions run 37250491068](https://github.com/mattmedlin/critterlink/actions/runs/37250491068)
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `64e16da8335f15702cfaeaa4fc0649c4474b0559`, including the final same-tick DMA test.
+
+## IOP multiply/divide hardware observations
+
+Source `4df9611` implements the published IOP zero-divisor results: DIV writes
+HI=dividend and LO=1 for negative inputs or 0xffffffff otherwise; DIVU writes
+HI=dividend and LO=0xffffffff. The operation retires without a divide exception.
+All 108 DIV/DIVU/MULT/MULTU numerical observations in the pinned ps2autotests IOP
+result file are checked by an original harness using literal expected values.
+The [IOP evidence section](iop.md#independent-multiplydivide-observations) links
+the exact upstream inputs, outputs and revision and identifies timing limits.
+
+All 60 local suites passed Debug, Release and ASan/UBSan (256.40, 15.42 and
+537.98 seconds).
+The arithmetic suite checks both CPU profiles and complete IOP state preservation,
+older pending-load operand timing, taken/untaken delay slots, register zero and
+reserved-field atomic rejection. An original EE/IOP guest stores zero-divisor
+results to RAM; a checkpoint after its first divide reproduces full System state
+and EE traces under split budgets. No proprietary firmware, upstream IRX execution
+or new console measurement is claimed. Multiply/divide latency, HI/LO hazards and
+full IOP/firmware conformance remain unfinished; #19 and #4 remain open.
+
+[GitHub Actions run 37251612539](https://github.com/mattmedlin/critterlink/actions/runs/37251612539)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`4df96116d3f4c07ecb7d64bfa4c2a9bc5fa108c5`, with all 60 suites on each configuration.
