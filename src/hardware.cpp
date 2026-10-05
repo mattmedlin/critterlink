@@ -17,24 +17,31 @@ unsigned divisor(std::uint16_t mode) { return (mode & 3u) == 0 ? 1u : (mode & 3u
 void require(bool ok, const char* reason) { if (!ok) { throw std::invalid_argument(reason); } }
 class PeripheralBus final : public IopBus {
 public:
-    PeripheralBus(Sif& sif, Spu& spu, Sio2& sio2, Cdvd& cdvd, IopIntc& intc, std::span<const std::uint8_t> rom)
-        : sif_(sif), spu_(spu), sio2_(sio2), cdvd_(cdvd), intc_(intc), rom_(rom) {}
+    PeripheralBus(Sif& sif, Spu& spu, Sio2& sio2, Cdvd& cdvd, IopIntc& intc, IopTimers& timers, std::span<const std::uint8_t> rom)
+        : sif_(sif), spu_(spu), sio2_(sio2), cdvd_(cdvd), intc_(intc), timers_(timers), rom_(rom) {}
     std::uint32_t fetch32(std::uint32_t address) override { return rom_read(address,4); }
     std::uint8_t read8(std::uint32_t address) override {
+        if (IopTimers::address(address)) { return static_cast<std::uint8_t>(timers_.read(address, 1)); }
         if (IopIntc::address(address)) { return static_cast<std::uint8_t>(intc_.read(address, 1)); }
         if(rom_address(address)) return static_cast<std::uint8_t>(rom_read(address,1));
         return Sio2::address(address) ? sio2_.read8(address) : cdvd_.read8(address);
     }
     void write8(std::uint32_t address, std::uint8_t value) override {
+        if (IopTimers::address(address)) { timers_.write(address, value, 1); return; }
         if (IopIntc::address(address)) { intc_.write(address, value, 1); return; }
         if (Sio2::address(address)) { sio2_.write8(address, value); }
         else { cdvd_.write8(address, value); }
     }
     std::uint16_t read16(std::uint32_t address) override {
+        if (IopTimers::address(address)) { return static_cast<std::uint16_t>(timers_.read(address, 2)); }
         return rom_address(address)?static_cast<std::uint16_t>(rom_read(address,2)):spu_.read16(address);
     }
-    void write16(std::uint32_t address, std::uint16_t value) override { spu_.write16(address, value); }
+    void write16(std::uint32_t address, std::uint16_t value) override {
+        if (IopTimers::address(address)) { timers_.write(address, value, 2); return; }
+        spu_.write16(address, value);
+    }
     std::uint32_t read32(std::uint32_t address) override {
+        if (IopTimers::address(address)) { return timers_.read(address); }
         if (IopIntc::address(address)) { return intc_.read(address); }
         if(rom_address(address)) return rom_read(address,4);
         if (Sio2::address(address)) { return sio2_.read32(address); }
@@ -42,6 +49,7 @@ public:
         return sif_.iop_read32(address);
     }
     void write32(std::uint32_t address, std::uint32_t value) override {
+        if (IopTimers::address(address)) { timers_.write(address, value); return; }
         if (IopIntc::address(address)) { intc_.write(address, value); return; }
         if (Sio2::address(address)) { sio2_.write32(address, value); }
         else if (Cdvd::word_address(address)) { cdvd_.write32(address, value); }
@@ -53,6 +61,7 @@ private:
     Sio2& sio2_;
     Cdvd& cdvd_;
     IopIntc& intc_;
+    IopTimers& timers_;
     std::span<const std::uint8_t> rom_;
     static bool rom_address(std::uint32_t address) {return address>=0x1fc00000U && address<0x20000000U;}
     std::uint32_t rom_read(std::uint32_t address,unsigned count) const {
@@ -304,6 +313,20 @@ void Hardware::tick_dma(std::span<const std::uint8_t> ram) {
     }
 }
 
+void Hardware::advance_iop_pixel_clock(std::uint64_t ticks) {
+    if (ticks == 0) { return; }
+    iop_intc_.raise_edges(iop_timers_.advance_pixel(ticks));
+    sample_iop_interrupts();
+}
+void Hardware::set_iop_hblank(bool active) {
+    iop_intc_.raise_edges(iop_timers_.set_hblank(active));
+    sample_iop_interrupts();
+}
+void Hardware::set_iop_vblank(bool active) {
+    iop_intc_.raise_edges(iop_timers_.set_vblank(active));
+    sample_iop_interrupts();
+}
+
 void Hardware::sample_iop_interrupts() {
     // Sample before/after the guest bus operation and after device service so a
     // falling acknowledgement followed by a new completion in one tick survives.
@@ -322,8 +345,10 @@ void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram, std::sp
     const auto target = now + ticks;
     while (auto event = scheduler_.pop_next_until(target)) {
         tick_timers();
+        // One supplied IOP clock per logical tick until physical clock scheduling.
+        iop_intc_.raise_edges(iop_timers_.advance_sysclock(1));
         sample_iop_interrupts();
-        PeripheralBus bus(sif_, spu_, sio2_, cdvd_, iop_intc_, boot_rom);
+        PeripheralBus bus(sif_, spu_, sio2_, cdvd_, iop_intc_, iop_timers_, boot_rom);
         iop_.step(&bus);
         sample_iop_interrupts();
         if (iop_.state().stop) { stop_ = "IOP: " + *iop_.state().stop; }
@@ -358,7 +383,7 @@ void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram, std::sp
 }
 
 HardwareState Hardware::state() const {
-    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state(), sio2_.state(), cdvd_.state(), gif_fifo_, iop_intc_.state()};
+    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state(), sio2_.state(), cdvd_.state(), gif_fifo_, iop_intc_.state(), iop_timers_.state()};
 }
 
 void Hardware::restore(const HardwareState& state) {
@@ -391,6 +416,7 @@ void Hardware::restore(const HardwareState& state) {
             "invalid VIF1 DMA snapshot");
     replacement.iop_.restore(state.iop);
     replacement.iop_intc_.restore(state.iop_intc);
+    replacement.iop_timers_.restore(state.iop_timers);
     replacement.sif_.restore(state.sif);
     replacement.spu_.restore(state.spu);
     replacement.sio2_.restore(state.sio2);

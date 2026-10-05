@@ -68,7 +68,7 @@ rather than masquerading as architectural RI or bus-error exceptions.
 
 Software interrupt bits and an explicit external IP2 line participate in Status
 mask/IE arbitration before fetch. The integrated IOP INTC supplies IP2 from
-CDVD, SIF DMA and SIO2; see the register and edge contract below. Entry
+CDVD, SIF DMA, SIO2 and timers; see the register and edge contract below. Entry
 preserves pending sources and clears current IE. Acknowledgement must remove the
 source. External recognition latency and pipeline timing are not modeled.
 
@@ -85,7 +85,8 @@ Other subword accesses remain unsupported pending IOP-specific bus evidence;
 PS1 partial writes cannot safely be assumed to preserve adjacent lanes.
 
 The integrated sources are CDVD command completion/error (bit 2), the existing
-SIF DMA master signal (bit 3), and SIO2 transfer completion (bit 17). The output
+SIF DMA master signal (bit 3), SIO2 transfer completion (bit 17), and qualified
+[timer events](iop-timers.md) (bits 4–6 and 14–16). The output
 is level-driven into Cause.IP2 (bit 10), with CPU IEc/IM2 as separate gates. Clear
 the controller latch and the peripheral's own flag separately. A source held
 high does not relatch merely because I_STAT was cleared. Dropping and raising
@@ -130,6 +131,10 @@ work. IOP remains disabled in a default System until explicitly started; `--bios
 starts it automatically and prints its final PC. Direct ELF diagnostics retain
 the disabled IOP default.
 
+The six IOP timers now expose COUNT/MODE/TARGET and guest interrupts through the
+peripheral bus. Their [clock, gate and boundary contract](iop-timers.md) distinguishes
+functional behavior from unverified hardware timing and conformance.
+
 Snapshots include GPRs, HI/LO, COP0, branch PC, pending load, profile, enable/stop
 state and RAM, with the shared ROM in MemoryState. Restore validates sizes,
 register zero, Status support, branch progression and load destination before
@@ -159,7 +164,7 @@ These original tests do not establish independent firmware or silicon conformanc
 
 Remaining #19 work includes instruction/exception conformance and
 load bypass corner cases, architectural RI/bus errors, cache/reset/control decode,
-PRId/debug registers, remaining INTC access widths and source routing, timers, DMA channels,
+PRId/debug registers, remaining INTC access widths and source routing, timer conformance/video clocks, DMA channels,
 physical clock ratios and in-flight pipeline work. Independent homebrew and real
 firmware evidence are also required. No proprietary firmware or external emulator
 implementation was imported.

@@ -5,6 +5,7 @@
 #include "critterlink/vector.hpp"
 #include "critterlink/iop.hpp"
 #include "critterlink/iop_intc.hpp"
+#include "critterlink/iop_timers.hpp"
 #include "critterlink/sif.hpp"
 #include "critterlink/spu.hpp"
 #include "critterlink/sio2.hpp"
@@ -55,6 +56,7 @@ struct HardwareState {
     CdvdState cdvd;
     GifFifoState gif_fifo;
     IopIntcState iop_intc;
+    IopTimersState iop_timers;
     bool operator==(const HardwareState&) const = default;
 };
 
@@ -67,6 +69,10 @@ public:
     // False means backpressure: no part of the qword was accepted.
     bool write_quadword(std::uint32_t physical_address, std::array<std::uint32_t, 4> words);
     void advance(std::uint64_t ticks, std::span<std::uint8_t> ram, std::span<const std::uint8_t> boot_rom = {});
+    // Explicit video-clock inputs; current GS diagnostic does not generate them.
+    void advance_iop_pixel_clock(std::uint64_t ticks);
+    void set_iop_hblank(bool active);
+    void set_iop_vblank(bool active);
     HardwareState state() const;
     void restore(const HardwareState& state);
     bool int0() const noexcept;
@@ -76,6 +82,7 @@ public:
     const VectorState& vector() const noexcept { return vector_.state(); }
     Iop& iop() noexcept { return iop_; }
     const Iop& iop() const noexcept { return iop_; }
+    const IopTimersState& iop_timers() const noexcept { return iop_timers_.state(); }
     const SifState& sif() const noexcept { return sif_.state(); }
     const SpuState& spu() const noexcept { return spu_.state(); }
     Sio2& sio2() noexcept { return sio2_; }
@@ -100,6 +107,7 @@ private:
     VectorUnit vector_;
     Iop iop_;
     IopIntc iop_intc_;
+    IopTimers iop_timers_;
     Sif sif_;
     Spu spu_;
     Sio2 sio2_;

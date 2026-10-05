@@ -30,6 +30,12 @@ void IopIntc::sample(std::uint32_t levels) {
     state_.status |= levels & ~state_.levels;
     state_.levels = levels;
 }
+void IopIntc::raise_edges(std::uint32_t sources) {
+    if ((sources & ~source_mask) != 0) {
+        throw std::invalid_argument("invalid IOP interrupt event source");
+    }
+    state_.status |= sources;
+}
 std::uint32_t IopIntc::read(std::uint32_t physical, unsigned width) {
     validate_access(physical, width);
     if (physical == stat) { return state_.status; }
