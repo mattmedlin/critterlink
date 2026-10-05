@@ -1036,3 +1036,38 @@ and independent conformance remain unfinished. #19/#18/#4 stay open.
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `43ff91dc023c9829382a83db29f022969d04476a`. This includes the final GCC formatting
 fix and all 58 suites on each configuration.
+
+## IOP interrupt controller and peripheral dispatch
+
+The IOP INTC batch (`64e16da`) implements edge-latched I_STAT, replacement I_MASK,
+read-to-disable I_CTRL, CPU IP2 routing and saved source-level history. CDVD command
+completion/error, the current SIF DMA master signal and SIO2 completion now reach
+IOP guest handlers. The [IOP contract](iop.md#iop-interrupt-controller) identifies
+source evidence, unverified timing and remaining partial-access/source gaps.
+
+All 59 local suites passed Debug, Release and ASan/UBSan (246.18, 13.55 and
+510.19 seconds). Those full runs preceded the final additional same-tick DMA edge test; production code
+was unchanged. Final `iop_intc` reruns including that regression passed Debug,
+Release and ASan/UBSan (44.38, 0.73 and 89.32 seconds).
+
+The tests cover all 26 defined source positions, pending flags under masks/global
+disable, four independent controller/CPU gates, read-to-disable loads including
+register zero, source-held-high acknowledgement, replayed edge history and atomic
+invalid-state rejection. Three original IOP programs configure a CDVD sector read,
+SIF transfer or SIO2 pad transaction, enter the guest exception vector, acknowledge
+controller and device state, and return through JR/RFE. Checks include literal
+transferred data, pad response, service count and Cause fields. Pending and
+in-handler snapshots reproduce full System state and EE traces with split budgets.
+A separate guest acknowledges an old SIF completion on the exact logical tick
+of a new completion; the new edge survives and reproduces after restoration.
+
+Manual checks retain the previous outputs: integrated ticks=194, sprite-pixels=12,
+samples=194, pcm-signature=15153771150353129381, concurrent=1, input=1,
+replay=identical; IOP/SIF ticks=223, response=40, exchange-completed=1,
+replay=identical; I/O ticks=1185, digital=1, analog=1, card=1, disc=1,
+replay=identical. No proprietary firmware or independent silicon measurements
+were used. This does not complete #19 or milestone #4.
+
+[GitHub Actions run 37250491068](https://github.com/mattmedlin/critterlink/actions/runs/37250491068)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`64e16da8335f15702cfaeaa4fc0649c4474b0559`, including the final same-tick DMA test.
