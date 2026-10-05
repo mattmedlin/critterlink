@@ -154,14 +154,16 @@ void rom_and_replay() {
     check(system.state()==end && a==b,"IOP ROM bytes and in-handler System replay");
     // Both processors consume one shared immutable image, using independent RAM.
     System dual;const std::array<std::uint32_t,4> shared{0x2401002a,0xac010100,0x0bf00002,0};
-    for(unsigned n=0;n<shared.size();++n)put(n*4,shared[n]);dual.memory().load_boot_rom(rom);
+    for(unsigned n=0;n<shared.size();++n) {put(n*4,shared[n]);}
+    dual.memory().load_boot_rom(rom);
     dual.cpu().reset_boot_vector();dual.memory().iop().reset_boot_vector();dual.run(12);
     check(dual.memory().read(0x100,4)==42 && dual.memory().iop().read32(0x100)==42 && !dual.memory().hardware().stop(),"EE and IOP share boot ROM, not RAM");
     System missing;missing.memory().load_boot_rom(std::array<std::uint8_t,3>{});missing.memory().iop().reset_boot_vector();missing.run(1);
     check(missing.memory().iop().state().stop && missing.memory().iop().state().pc==0xbfc00000,"incomplete IOP ROM fetch stops without padding");
     // ROM data accesses use exact byte/halfword/word widths, separately from fetch.
     System widths;const std::array<std::uint32_t,10> reads{0x3c01bfc0,0x90220200,0x94230200,0x8c240200,0,0xac020100,0xac030104,0xac040108,0x0bf00008,0};
-    for(unsigned n=0;n<reads.size();++n)put(n*4,reads[n]);put(0x200,0x89abcdef);
+    for(unsigned n=0;n<reads.size();++n) {put(n*4,reads[n]);}
+    put(0x200,0x89abcdef);
     widths.memory().load_boot_rom(rom);widths.memory().iop().reset_boot_vector();widths.run(10);
     check(!widths.memory().hardware().stop() && widths.memory().iop().read32(0x100)==0xef &&
           widths.memory().iop().read32(0x104)==0xcdef && widths.memory().iop().read32(0x108)==0x89abcdef,"ROM data widths and delayed results");

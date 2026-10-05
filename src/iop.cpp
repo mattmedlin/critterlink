@@ -208,10 +208,12 @@ bool Iop::step(IopBus* bus) {
             if(rt!=0 && rt!=1 && rt!=16 && rt!=17)throw std::invalid_argument("unsupported IOP REGIMM instruction");
             if(rt>=16 && rs==31)throw std::invalid_argument("IOP conditional link/source overlap is undefined");
             conditional((rt&1U)!=0?signed_word(left)>=0:signed_word(left)<0);
-            if(rt>=16)write=IopLoad{31,state_.pc+8U};break;
+            if(rt>=16) {write=IopLoad{31,state_.pc+8U};}
+            break;
         case 2:case 3:
             set_branch(((state_.pc+4U)&0xf0000000U)|((instruction&0x03ffffffU)<<2U));
-            if(op==3)write=IopLoad{31,state_.pc+8U};break;
+            if(op==3) {write=IopLoad{31,state_.pc+8U};}
+            break;
         case 4:case 5:conditional(op==4?left==right:left!=right);break;
         case 6:case 7:
             if(rt!=0)throw std::invalid_argument("reserved IOP zero-compare branch field");
