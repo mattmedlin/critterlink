@@ -998,3 +998,41 @@ firmware boot or general game compatibility are claimed; #17/#18/#4 stay open.
 [GitHub Actions run 37245000037](https://github.com/mattmedlin/critterlink/actions/runs/37245000037)
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `b279133`, including the corrected stalled-clock expectation and timer preemption.
+
+
+## IOP integer core, exceptions and shared boot ROM
+
+On October 4, 2026, all 58 local Apple Silicon suites passed Debug, Release and
+ASan/UBSan (200.03, 12.72 and 423.85 seconds) for `632c8ba`. The final revision
+`43ff91d` only separates/braces statements flagged by GCC misleading-indentation;
+it changes neither instruction behavior nor expectations. Focused IOP/core/ROM-CLI
+reruns passed Debug, Release and ASan/UBSan (16.72, 0.78 and 36.53 seconds).
+
+The IOP now executes the integer/shift/logic, branch/link, HI/LO and merge families
+listed in its [instruction inventory](iop.md), with a COP0 subset, RFE and selected
+architectural exceptions. Tests check literal arithmetic/extreme values, shift
+positions, unconditional conditional-branch links, delayed merge forwarding in
+both pair orders, older load completion on exception, nested status-stack pushes,
+delay-slot EPC/BD, unaligned jump-target fetch faults and interrupt gates.
+Unsupported zero-divisor results and ordinary overlapping loads remain explicit.
+
+The integrated IOP bus reads the same immutable boot-ROM bytes as the EE, through
+a separate fetch interface and width-specific data reads. An original ROM guest
+enters its BEV syscall handler, reads EPC with delayed MFC0, returns with JR/RFE
+and stores literal RAM outputs. Restoring inside that delayed MFC0 reproduces
+full System state/traces even after replacing and restoring the image. Other
+checks cover simultaneous EE/IOP ROM execution with separate RAM, ROM widths,
+missing bytes, immutable stores and invalid snapshot rejection.
+
+`--bios` now starts both processors. A manual run of the original 20-byte fixture
+retired 12 EE instructions, left both PCs at 0xbfc00010 and stored EE RAM[0x100]=42.
+The integrated diagnostic retained ticks=194, sprite-pixels=12, samples=194,
+pcm-signature=15153771150353129381, concurrent=1, input=1 and replay=identical.
+No proprietary firmware was used or actual BIOS boot established. IOP cache/reset
+controls, PRId/debug, full INTC/peripheral routing, timers, DMA, physical timing
+and independent conformance remain unfinished. #19/#18/#4 stay open.
+
+[GitHub Actions run 37249048634](https://github.com/mattmedlin/critterlink/actions/runs/37249048634)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`43ff91dc023c9829382a83db29f022969d04476a`. This includes the final GCC formatting
+fix and all 58 suites on each configuration.
