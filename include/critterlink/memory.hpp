@@ -58,7 +58,7 @@ public:
     void write_scratchpad(std::uint32_t offset,unsigned count,std::uint64_t value);
     void clear() noexcept;
     std::span<const std::uint8_t> bytes() const noexcept;
-    void advance(std::uint64_t ticks) { hardware_.advance(ticks, ram_); }
+    void advance(std::uint64_t ticks) { hardware_.advance(ticks, ram_, boot_rom_); }
     const Hardware& hardware() const noexcept { return hardware_; }
     Iop& iop() noexcept { return hardware_.iop(); }
     const Iop& iop() const noexcept { return hardware_.iop(); }

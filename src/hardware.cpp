@@ -17,18 +17,23 @@ unsigned divisor(std::uint16_t mode) { return (mode & 3u) == 0 ? 1u : (mode & 3u
 void require(bool ok, const char* reason) { if (!ok) { throw std::invalid_argument(reason); } }
 class PeripheralBus final : public IopBus {
 public:
-    PeripheralBus(Sif& sif, Spu& spu, Sio2& sio2, Cdvd& cdvd)
-        : sif_(sif), spu_(spu), sio2_(sio2), cdvd_(cdvd) {}
+    PeripheralBus(Sif& sif, Spu& spu, Sio2& sio2, Cdvd& cdvd, std::span<const std::uint8_t> rom)
+        : sif_(sif), spu_(spu), sio2_(sio2), cdvd_(cdvd), rom_(rom) {}
+    std::uint32_t fetch32(std::uint32_t address) override { return rom_read(address,4); }
     std::uint8_t read8(std::uint32_t address) override {
+        if(rom_address(address)) return static_cast<std::uint8_t>(rom_read(address,1));
         return Sio2::address(address) ? sio2_.read8(address) : cdvd_.read8(address);
     }
     void write8(std::uint32_t address, std::uint8_t value) override {
         if (Sio2::address(address)) { sio2_.write8(address, value); }
         else { cdvd_.write8(address, value); }
     }
-    std::uint16_t read16(std::uint32_t address) override { return spu_.read16(address); }
+    std::uint16_t read16(std::uint32_t address) override {
+        return rom_address(address)?static_cast<std::uint16_t>(rom_read(address,2)):spu_.read16(address);
+    }
     void write16(std::uint32_t address, std::uint16_t value) override { spu_.write16(address, value); }
     std::uint32_t read32(std::uint32_t address) override {
+        if(rom_address(address)) return rom_read(address,4);
         if (Sio2::address(address)) { return sio2_.read32(address); }
         if (Cdvd::word_address(address)) { return cdvd_.read32(address); }
         return sif_.iop_read32(address);
@@ -43,6 +48,15 @@ private:
     Spu& spu_;
     Sio2& sio2_;
     Cdvd& cdvd_;
+    std::span<const std::uint8_t> rom_;
+    static bool rom_address(std::uint32_t address) {return address>=0x1fc00000U && address<0x20000000U;}
+    std::uint32_t rom_read(std::uint32_t address,unsigned count) const {
+        if(!rom_address(address)) throw std::invalid_argument("IOP instruction fetch outside RAM/ROM");
+        const auto offset=address-0x1fc00000U;
+        if(offset>=rom_.size() || count>rom_.size()-offset) throw std::invalid_argument("IOP boot ROM bytes are absent");
+        std::uint32_t value=0;for(unsigned n=0;n<count;++n)value|=std::uint32_t{rom_[offset+n]}<<(n*8U);
+        return value;
+    }
 };
 }
 
@@ -285,7 +299,7 @@ void Hardware::tick_dma(std::span<const std::uint8_t> ram) {
     }
 }
 
-void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram) {
+void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram, std::span<const std::uint8_t> boot_rom) {
     if (stop_) { return; }
     const auto now = scheduler_.state().now;
     if (ticks > std::numeric_limits<std::uint64_t>::max() - now) {
@@ -294,7 +308,7 @@ void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram) {
     const auto target = now + ticks;
     while (auto event = scheduler_.pop_next_until(target)) {
         tick_timers();
-        PeripheralBus bus(sif_, spu_, sio2_, cdvd_);
+        PeripheralBus bus(sif_, spu_, sio2_, cdvd_, boot_rom);
         iop_.step(&bus);
         if (iop_.state().stop) { stop_ = "IOP: " + *iop_.state().stop; }
         if (!stop_) {

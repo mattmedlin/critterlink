@@ -64,7 +64,7 @@ public:
     void write(std::uint32_t physical_address, std::uint32_t value);
     // False means backpressure: no part of the qword was accepted.
     bool write_quadword(std::uint32_t physical_address, std::array<std::uint32_t, 4> words);
-    void advance(std::uint64_t ticks, std::span<std::uint8_t> ram);
+    void advance(std::uint64_t ticks, std::span<std::uint8_t> ram, std::span<const std::uint8_t> boot_rom = {});
     HardwareState state() const;
     void restore(const HardwareState& state);
     bool int0() const noexcept;

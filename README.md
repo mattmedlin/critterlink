@@ -117,7 +117,8 @@ ROM loading and reset-vector execution are available for development:
 ./build/critterlink --bios /path/to/user-rom.bin --steps 1000 --trace
 ```
 
-This accepts user bytes and reports the first unsupported instruction/access;
+This starts EE and IOP from the shared user-supplied image and reports their PCs
+and the first unsupported instruction/access;
 it does not yet boot a real PS2 BIOS. See the [memory/reset contract](docs/memory.md)
 for image bounds, snapshot behavior and remaining hardware requirements.
 

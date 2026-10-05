@@ -93,6 +93,7 @@ int run_image(int argc, char** argv, bool bios) {
         if (bios) {
             memory.load_boot_rom(file);
             cpu.reset_boot_vector();
+            memory.iop().reset_boot_vector();
             std::cout << "Boot ROM loaded: entry=0xbfc00000 file-bytes=" << file.size() << '\n';
         } else {
             const auto image = critterlink::load_elf(file, memory, cpu);
@@ -107,6 +108,8 @@ int run_image(int argc, char** argv, bool bios) {
         print_trace(trace);
         std::cout << label << " run: retired=" << result.retired << " pc=0x" << std::hex << std::setw(8) << cpu.state().pc
                   << (result.budget_exhausted ? " budget-exhausted\n" : " stopped\n");
+        if(bios) std::cout << "IOP state: pc=0x" << std::setw(8) << memory.iop().state().pc
+                          << (memory.iop().state().stop?" stopped\n":"\n");
         for (const auto address : inspect) {
             std::cout << "inspect[0x" << std::setw(8) << address << "]=0x"
                       << std::setw(8) << memory.read(address, 4) << '\n';
