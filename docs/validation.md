@@ -1095,3 +1095,27 @@ full IOP/firmware conformance remain unfinished; #19 and #4 remain open.
 [GitHub Actions run 37251612539](https://github.com/mattmedlin/critterlink/actions/runs/37251612539)
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `4df96116d3f4c07ecb7d64bfa4c2a9bc5fa108c5`, with all 60 suites on each configuration.
+
+## Six IOP timers and guest interrupt rearming
+
+Source `549c768` adds six IOP counters with count/mode/target MMIO, divider
+phase, explicit pixel/blank inputs, interrupt modes and snapshot validation.
+Timer events reach IOP INTC and original guest handlers. The
+[timer contract](iop-timers.md) separates implemented functional rules from
+unverified hardware boundaries and physical timing.
+
+All 61 local suites passed Debug, Release and ASan/UBSan (282.65, 13.78 and
+590.41 seconds). The full runs preceded the final test-only guest rearm extension;
+final focused timer reruns passed all three configurations (23.80, 0.51 and
+48.80 seconds). Coverage includes all six guest IRQ handlers, target rearming,
+exactly two services, pending-load and pre-compare snapshots, split-budget full
+System replay, gate edges, divider phases, read-clear flags, invalid-state
+atomicity and constant-time advances through UINT64_MAX.
+
+[GitHub Actions run 37253613449](https://github.com/mattmedlin/critterlink/actions/runs/37253613449)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`549c7689fa9397d4fa9efd59cfe87dbed9b5dfe1`, including the final rearm test.
+These tests validate the documented functional model, not independent timer
+measurements or firmware boot. GS-driven clocks, physical clock ratios, timer
+boundary conformance and the remaining IOP hardware are still open. #19/#4
+remain open.
