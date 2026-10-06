@@ -1119,3 +1119,25 @@ These tests validate the documented functional model, not independent timer
 measurements or firmware boot. GS-driven clocks, physical clock ratios, timer
 boundary conformance and the remaining IOP hardware are still open. #19/#4
 remain open.
+
+## IOP load-delay and JALR observations
+
+Source `09f69a7` removes the rejection of JALR with the same source and link
+register, matching the published PS2 target-selection observation. The core
+captures the old target before committing the link. Two original suites check
+seven direct LB/LW observations and the overlapping JALR result in both CPU
+profiles; additional checks cover delay-slot writes, pending loads, register zero,
+reserved fields and complete IOP/System replay. Pinned inputs/results and the
+limits of these observations are documented in [iop.md](iop.md).
+
+All 63 suites passed Debug (349.42 seconds) and Release (23.94 seconds).
+ASan/UBSan passed suites 1–29 before an interrupted run; a resumed run explicitly
+repeated suite 30 and passed all remaining 34 suites (227.64 seconds). Together
+these cover all 63 suites at the same source revision. No sanitizer failure was
+observed; the interrupted run is not reported as a completed full run.
+
+[GitHub Actions run 37490843406](https://github.com/mattmedlin/critterlink/actions/runs/37490843406)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`09f69a79b8cf87f63fb44792c0f5d7a7554f7afd`. These are published numerical/control
+observations plus original deterministic integration checks, not new hardware
+measurements, pipeline timing or actual firmware boot. #19 and #4 remain open.
