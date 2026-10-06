@@ -231,3 +231,13 @@ checks for link values, delay-slot writes, pending loads, register zero and
 reserved-field rejection. Saving between jump and slot reproduces the captured
 target and full System state under split execution budgets. These additional
 checks are integration invariants, not new console measurements.
+
+## IOP-to-EE SBUS request
+
+Word reads/writes of `0x1f801450` implement only the bit1 EE interrupt request
+subset used by PS2SDK `sceSifIntrMain`. Assertion reaches EE INTC bit1 and captures
+EE timer HOLD0/1; deassertion rearms the edge. This is separate from IOP INTC,
+SIF DMA completion and mailbox acknowledgements. See the
+[SBUS contract](hardware-plan.md#sbus-capture-and-timer-hold) for pinned source
+evidence, the limited control mask/reset assumptions and original dual-CPU tests.
+Full SBUS controls and reverse EE-to-IOP requests remain unfinished.

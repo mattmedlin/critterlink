@@ -136,7 +136,7 @@ continues. Stopping CHCR discards that channel's pending qword while retaining
 already-consumed VIF state; callers must provide the remaining stream when
 restarting. This is a diagnostic transfer policy, not FIFO/bus cycle emulation.
 
-Missing: timer gates, HBlank/VBlank clocks, device-origin SBUS wiring, real-time frequencies,
+Missing: timer gates, HBlank/VBlank clocks, remaining SBUS sources/control modes, real-time frequencies,
 other DMA channels, chain/interleave modes,
 scratchpad DMA, hardware-accurate FIFO capacities, arbitration and cycle-level
 bus timing. Implemented VIF stalls and SIF bounded queues are documented diagnostic
@@ -152,7 +152,8 @@ flag acknowledgement but does not resolve these timing/rearm details fully.
 ### SBUS capture and timer HOLD
 
 `Hardware::set_sbus_interrupt_line(high)` accepts the physical active-low SBUS
-request level; Memory forwards the same input for System integration. A falling
+external request level; Memory forwards the same input for System integration.
+It combines with the IOP request so either contributor can hold the line low. A falling
 edge copies COUNT0/1 into HOLD0/1 and latches INTC_STAT bit1 regardless of INTC_MASK.
 A held-low request does not create another event, including after W1C
 acknowledgement. A rising edge only rearms detection. A subsequent falling edge
@@ -162,7 +163,9 @@ not advance scheduler time or change timer count, phase, mode, or compare.
 HOLD registers at 0x10000030 and 0x10000830 support aligned word reads/writes,
 retaining low16 bits and reading upper16 as zero. Timers2/3 have no HOLD and
 reject access; their placeholder snapshot HOLD fields must remain zero.
-Snapshot state includes captured values and the last physical request level.
+Snapshot state includes captured values, both source contributions and the last
+combined physical request level. Restore validates their consistency without
+generating a new edge.
 The initial inactive-high level and zero HOLD values are deterministic reset
 choices, not measured silicon reset values.
 
@@ -172,9 +175,28 @@ the INTC table (printed p28), timer capture (p34), and writable HOLD (pp35,39).
 invalid-state atomicity and a literal EE guest interrupt handler that reads both
 captures, acknowledges SBUS and returns through ERET. Checkpoints before service
 and after rearming reproduce full System state and EE traces. Host-supplied
-request transitions exercise the functional input; current SIF DMA completions
-are not automatically treated as SBUS requests. Device-origin SBUS generation,
-physical synchronizer latency and independently measured timing remain open.
+request transitions exercise the external input. An original IOP guest also
+generates the signal through its SBUS control register, then an EE guest handles
+the resulting interrupt. Current SIF DMA completions are not automatically
+treated as SBUS requests. Remaining source/control modes, physical synchronizer
+latency and independently measured timing remain open.
+
+The IOP word register at `0x1f801450` supports request bit1 only. Setting it asserts
+the EE SBUS contributor; clearing it releases that contributor. Unsupported
+bits and non-word accesses reject explicitly before modifying the request.
+[PS2SDK sceSifIntrMain](https://github.com/ps2dev/ps2sdk/blob/2c670453980fcc3fe46ead6399b730b12c8556eb/iop/system/sifman/src/sifman.c#L512)
+reads this register, sets bit1, then clears it; the
+[IOP SBUS driver](https://github.com/ps2dev/ps2sdk/blob/2c670453980fcc3fe46ead6399b730b12c8556eb/common/sbus/src/iop_sbus.c#L34)
+independently identifies the request and release. Each guest write updates the
+source immediately within its logical execution tick. EE INTC acknowledgement
+and SIF mailbox acknowledgement do not clear the IOP source request.
+
+The initial zero control value and retained bit1 readback are functional model
+choices consistent with those software sequences, not full register/reset
+measurements. Other control bits, including cache/reset-related controls, and
+the reverse EE-to-IOP SBUS request remain unsupported. The external input models
+an independent contributor for testing/future devices, rather than overriding
+an asserted IOP request.
 
 ## Diagnostic and independent expectations
 

@@ -58,6 +58,8 @@ struct HardwareState {
     IopIntcState iop_intc;
     IopTimersState iop_timers;
     bool sbus_interrupt_high{true};
+    bool sbus_external_high{true};
+    std::uint32_t iop_sbus_control{};
     bool operator==(const HardwareState&) const = default;
 };
 
@@ -74,8 +76,10 @@ public:
     void advance_iop_pixel_clock(std::uint64_t ticks);
     void set_iop_hblank(bool active);
     void set_iop_vblank(bool active);
-    // Physical active-low SBUS request; falling edges capture HOLD0/1.
+    // External active-low SBUS contributor, combined with the IOP request.
     void set_sbus_interrupt_line(bool high) noexcept;
+    std::uint32_t iop_sbus_control() const noexcept { return iop_sbus_control_; }
+    void write_iop_sbus_control(std::uint32_t value);
     HardwareState state() const;
     void restore(const HardwareState& state);
     bool int0() const noexcept;
@@ -96,6 +100,7 @@ public:
 
 private:
     void sample_iop_interrupts();
+    void sample_sbus_interrupt() noexcept;
     void tick_timers();
     void tick_vif_dma(std::span<const std::uint8_t> ram);
     void tick_dma(std::span<const std::uint8_t> ram);
@@ -103,7 +108,8 @@ private:
     bool enqueue_gif(std::array<std::uint32_t, 4> words);
     Scheduler scheduler_;
     std::array<TimerState, 4> timers_{};
-    bool sbus_interrupt_high_{true};
+    bool sbus_interrupt_high_{true}, sbus_external_high_{true};
+    std::uint32_t iop_sbus_control_{};
     std::uint32_t interrupt_status_{}, interrupt_mask_{};
     GifDmaState dma_;
     Graphics graphics_;

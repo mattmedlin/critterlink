@@ -17,8 +17,8 @@ unsigned divisor(std::uint16_t mode) { return (mode & 3u) == 0 ? 1u : (mode & 3u
 void require(bool ok, const char* reason) { if (!ok) { throw std::invalid_argument(reason); } }
 class PeripheralBus final : public IopBus {
 public:
-    PeripheralBus(Sif& sif, Spu& spu, Sio2& sio2, Cdvd& cdvd, IopIntc& intc, IopTimers& timers, std::span<const std::uint8_t> rom)
-        : sif_(sif), spu_(spu), sio2_(sio2), cdvd_(cdvd), intc_(intc), timers_(timers), rom_(rom) {}
+    PeripheralBus(Sif& sif, Spu& spu, Sio2& sio2, Cdvd& cdvd, IopIntc& intc, IopTimers& timers, Hardware& hardware, std::span<const std::uint8_t> rom)
+        : sif_(sif), spu_(spu), sio2_(sio2), cdvd_(cdvd), intc_(intc), timers_(timers), hardware_(hardware), rom_(rom) {}
     std::uint32_t fetch32(std::uint32_t address) override { return rom_read(address,4); }
     std::uint8_t read8(std::uint32_t address) override {
         if (IopTimers::address(address)) { return static_cast<std::uint8_t>(timers_.read(address, 1)); }
@@ -41,6 +41,7 @@ public:
         spu_.write16(address, value);
     }
     std::uint32_t read32(std::uint32_t address) override {
+        if (address == 0x1f801450) { return hardware_.iop_sbus_control(); }
         if (IopTimers::address(address)) { return timers_.read(address); }
         if (IopIntc::address(address)) { return intc_.read(address); }
         if(rom_address(address)) return rom_read(address,4);
@@ -49,6 +50,7 @@ public:
         return sif_.iop_read32(address);
     }
     void write32(std::uint32_t address, std::uint32_t value) override {
+        if (address == 0x1f801450) { hardware_.write_iop_sbus_control(value); return; }
         if (IopTimers::address(address)) { timers_.write(address, value); return; }
         if (IopIntc::address(address)) { intc_.write(address, value); return; }
         if (Sio2::address(address)) { sio2_.write32(address, value); }
@@ -62,6 +64,7 @@ private:
     Cdvd& cdvd_;
     IopIntc& intc_;
     IopTimers& timers_;
+    Hardware& hardware_;
     std::span<const std::uint8_t> rom_;
     static bool rom_address(std::uint32_t address) {return address>=0x1fc00000U && address<0x20000000U;}
     std::uint32_t rom_read(std::uint32_t address,unsigned count) const {
@@ -232,6 +235,18 @@ void Hardware::tick_gif() {
 }
 
 void Hardware::set_sbus_interrupt_line(bool high) noexcept {
+    sbus_external_high_ = high;
+    sample_sbus_interrupt();
+}
+
+void Hardware::write_iop_sbus_control(std::uint32_t value) {
+    require((value & ~2U) == 0, "unsupported IOP SBUS control bits");
+    iop_sbus_control_ = value;
+    sample_sbus_interrupt();
+}
+
+void Hardware::sample_sbus_interrupt() noexcept {
+    const bool high = sbus_external_high_ && (iop_sbus_control_ & 2U) == 0;
     if (sbus_interrupt_high_ && !high) {
         timers_[0].hold = timers_[0].count;
         timers_[1].hold = timers_[1].count;
@@ -363,7 +378,7 @@ void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram, std::sp
         // One supplied IOP clock per logical tick until physical clock scheduling.
         iop_intc_.raise_edges(iop_timers_.advance_sysclock(1));
         sample_iop_interrupts();
-        PeripheralBus bus(sif_, spu_, sio2_, cdvd_, iop_intc_, iop_timers_, boot_rom);
+        PeripheralBus bus(sif_, spu_, sio2_, cdvd_, iop_intc_, iop_timers_, *this, boot_rom);
         iop_.step(&bus);
         sample_iop_interrupts();
         if (iop_.state().stop) { stop_ = "IOP: " + *iop_.state().stop; }
@@ -398,7 +413,7 @@ void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram, std::sp
 }
 
 HardwareState Hardware::state() const {
-    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state(), sio2_.state(), cdvd_.state(), gif_fifo_, iop_intc_.state(), iop_timers_.state(), sbus_interrupt_high_};
+    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state(), sio2_.state(), cdvd_.state(), gif_fifo_, iop_intc_.state(), iop_timers_.state(), sbus_interrupt_high_, sbus_external_high_, iop_sbus_control_};
 }
 
 void Hardware::restore(const HardwareState& state) {
@@ -417,6 +432,9 @@ void Hardware::restore(const HardwareState& state) {
         require((timer.mode & ~0xfc3u) == 0 && (timer.mode & 3u) != 3 && timer.phase < divisor(timer.mode),
                 "invalid timer snapshot");
     }
+    require((state.iop_sbus_control & ~2U) == 0 &&
+            state.sbus_interrupt_high == (state.sbus_external_high && (state.iop_sbus_control & 2U) == 0),
+            "invalid SBUS request snapshot");
     require(state.timers[2].hold == 0 && state.timers[3].hold == 0, "invalid absent timer HOLD register");
     require((state.interrupt_status & ~0x7fffu) == 0 && (state.interrupt_mask & ~0x7fffu) == 0,
             "invalid INTC snapshot");
@@ -448,6 +466,8 @@ void Hardware::restore(const HardwareState& state) {
     replacement.gif_fifo_ = state.gif_fifo;
     replacement.timers_ = state.timers;
     replacement.sbus_interrupt_high_ = state.sbus_interrupt_high;
+    replacement.sbus_external_high_ = state.sbus_external_high;
+    replacement.iop_sbus_control_ = state.iop_sbus_control;
     replacement.interrupt_status_ = state.interrupt_status;
     replacement.interrupt_mask_ = state.interrupt_mask;
     replacement.dma_ = state.dma;
