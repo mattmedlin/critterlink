@@ -194,3 +194,22 @@ scheduled EE/IOP guest stores zero-divisor HI/LO results to RAM; restoring after
 its first divide reproduces full System state and EE traces with split budgets.
 This tests observed numerical behavior, not the upstream IRX module, multiply/
 divide cycle latency, interruptibility, interlocks or full IOP conformance.
+
+## Independent load-delay observations
+
+`iop_load_delay` checks seven direct LB/LW observations from pinned
+[lsudelay.expected](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/iop/lsudelay.expected),
+with inputs and instruction ordering established by
+[lsudelay.c](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/iop/lsudelay.c).
+A younger write replaces the pending load result; an immediate consumer sees
+the old value; a consumer after one intervening instruction sees the loaded
+value; a branch immediately after LW compares the old operand. Literal original
+guest opcodes store each observed result to RAM in both CPU profiles.
+
+Pending-load checkpoints reproduce complete IOP and System state; partitioned
+System runs also reproduce EE traces. These replay checks are integration
+properties, not additional console observations. The upstream LD probes are
+assembler pseudo-operations and are excluded: they do not establish a native
+64-bit IOP load. The seven probes do not settle consecutive same-register loads,
+all bypass hazards, pipeline timing or general IOP conformance. No production
+CPU change was needed to match these observations.
