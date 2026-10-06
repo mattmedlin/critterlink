@@ -1,6 +1,8 @@
 #include "critterlink/system.hpp"
 
 #include <iostream>
+#include <memory>
+#include <type_traits>
 #include <stdexcept>
 
 namespace {
@@ -8,13 +10,22 @@ using namespace critterlink;
 constexpr std::uint32_t stat = 0x1000f000, mask = 0x1000f010;
 constexpr std::uint32_t timer(unsigned n) { return 0x10000000 + n * 0x800; }
 void check(bool value, const char* reason) { if (!value) { throw std::runtime_error(reason); } }
+// Keep fixtures and snapshots off the Windows Debug 1 MiB stack. Construct
+// returned states directly in their final heap storage (no forwarding temporary).
+template<class T> auto snapshot(const T& object) {
+    using State = std::remove_cvref_t<decltype(object.state())>;
+    return std::unique_ptr<State>(new State(object.state()));
+}
+template<class T> auto state_copy(const T& state) {
+    return std::unique_ptr<T>(new T(state));
+}
 template<class F> void invalid(F action) {
     try { action(); } catch (const std::invalid_argument&) { return; }
     throw std::runtime_error("expected invalid_argument");
 }
 void register_and_edge_behavior() {
-    Hardware hardware;
-    check(hardware.state().sbus_interrupt_high, "SBUS must reset to inactive high");
+    const auto hardware_storage = std::make_unique<Hardware>(); auto& hardware = *hardware_storage;
+    check((*snapshot(hardware)).sbus_interrupt_high, "SBUS must reset to inactive high");
     hardware.write(timer(0) + 0x30, 0x12345678);
     hardware.write(timer(1) + 0x30, 0xffffabcd);
     check(hardware.read(timer(0) + 0x30) == 0x5678 &&
@@ -22,32 +33,32 @@ void register_and_edge_behavior() {
     hardware.write(timer(0), 0x1234); hardware.write(timer(1), 0x9876);
     // One enabled counter and one disabled counter are captured identically.
     hardware.write(timer(0) + 0x10, 0x81); hardware.advance(3, {});
-    const auto before = hardware.state(); auto expected = before;
+    const auto before_storage = snapshot(hardware); const auto& before = *before_storage; const auto expected_storage = state_copy(before); auto& expected = *expected_storage;
     expected.sbus_interrupt_high = false; expected.sbus_external_high = false;
     expected.timers[0].hold = before.timers[0].count;
     expected.timers[1].hold = before.timers[1].count;
     expected.interrupt_status |= 2;
     hardware.set_sbus_interrupt_line(false);
-    check(hardware.state() == expected && !hardware.int0(),
+    check((*snapshot(hardware)) == expected && !hardware.int0(),
           "falling SBUS must capture both counts and latch masked IRQ without ticks or other mutation");
     check(hardware.read(timer(0) + 0x30) == 0x1234 && hardware.read(timer(1) + 0x30) == 0x9876,
           "SBUS captured incorrect timer counts");
     hardware.set_sbus_interrupt_line(false);
-    check(hardware.state() == expected, "repeated asserted SBUS fabricated a new edge");
+    check((*snapshot(hardware)) == expected, "repeated asserted SBUS fabricated a new edge");
     hardware.write(mask, 2);
     check(hardware.int0(), "unmask did not expose pending SBUS interrupt");
     hardware.write(stat, 0);
     check(hardware.int0(), "writing zero acknowledged SBUS");
     hardware.write(stat, 2);
     check(!hardware.int0() && hardware.read(stat) == 0, "SBUS W1C acknowledgement failed");
-    const auto acknowledged = hardware.state(); hardware.set_sbus_interrupt_line(false);
-    check(hardware.state() == acknowledged, "asserted line relatched after W1C without rearming");
+    const auto acknowledged_storage = snapshot(hardware); const auto& acknowledged = *acknowledged_storage; hardware.set_sbus_interrupt_line(false);
+    check((*snapshot(hardware)) == acknowledged, "asserted line relatched after W1C without rearming");
     hardware.write(timer(0), 0x3333); hardware.write(timer(1), 0x4444);
-    auto rising = hardware.state(); rising.sbus_interrupt_high = true; rising.sbus_external_high = true;
+    const auto rising_storage = snapshot(hardware); auto& rising = *rising_storage; rising.sbus_interrupt_high = true; rising.sbus_external_high = true;
     hardware.set_sbus_interrupt_line(true);
-    check(hardware.state() == rising && !hardware.int0(), "rising SBUS captured or interrupted");
+    check((*snapshot(hardware)) == rising && !hardware.int0(), "rising SBUS captured or interrupted");
     hardware.set_sbus_interrupt_line(true);
-    check(hardware.state() == rising, "repeated inactive SBUS changed state");
+    check((*snapshot(hardware)) == rising, "repeated inactive SBUS changed state");
     hardware.set_sbus_interrupt_line(false);
     check(hardware.int0() && hardware.read(timer(0) + 0x30) == 0x3333 &&
           hardware.read(timer(1) + 0x30) == 0x4444, "rearmed falling edge failed to recapture");
@@ -57,13 +68,13 @@ void register_and_edge_behavior() {
     check(hardware.read(stat) == 2 && !hardware.int0() &&
           hardware.read(timer(0) + 0x30) == 0x5555 && hardware.read(timer(1) + 0x30) == 0x6666,
           "pending masked SBUS suppressed fresh HOLD capture");
-    const auto stable = hardware.state();
+    const auto stable_storage = snapshot(hardware); const auto& stable = *stable_storage;
     for (const unsigned index : {2U, 3U}) {
         invalid([&] { static_cast<void>(hardware.read(timer(index) + 0x30)); });
         invalid([&] { hardware.write(timer(index) + 0x30, 1); });
-        auto bad = stable; bad.timers[index].hold = 1;
+        const auto bad_storage = state_copy(stable); auto& bad = *bad_storage; bad.timers[index].hold = 1;
         invalid([&] { hardware.restore(bad); });
-        check(hardware.state() == stable, "invalid HOLD register/snapshot mutated hardware");
+        check((*snapshot(hardware)) == stable, "invalid HOLD register/snapshot mutated hardware");
     }
     // Other pending sources survive the SBUS acknowledgement.
     hardware.write(timer(2) + 0x20, 1); hardware.write(timer(2) + 0x10, 0x180);
@@ -71,25 +82,25 @@ void register_and_edge_behavior() {
     check(hardware.read(stat) == 0x800, "SBUS W1C cleared independent timer interrupt");
 }
 void iop_source_and_combined_line() {
-    Hardware hardware;
-    check(hardware.iop_sbus_control() == 0 && hardware.state().sbus_external_high,
+    const auto hardware_storage = std::make_unique<Hardware>(); auto& hardware = *hardware_storage;
+    check(hardware.iop_sbus_control() == 0 && (*snapshot(hardware)).sbus_external_high,
           "IOP SBUS deterministic initial state");
     hardware.write(timer(0), 0x1122); hardware.write(timer(1), 0x3344);
-    const auto before = hardware.state(); auto expected = before;
+    const auto before_storage = snapshot(hardware); const auto& before = *before_storage; const auto expected_storage = state_copy(before); auto& expected = *expected_storage;
     expected.iop_sbus_control = 2; expected.sbus_interrupt_high = false;
     expected.timers[0].hold = 0x1122; expected.timers[1].hold = 0x3344;
     expected.interrupt_status |= 2;
     hardware.write_iop_sbus_control(2);
-    check(hardware.state() == expected, "IOP SBUS source failed edge capture or consumed time");
+    check((*snapshot(hardware)) == expected, "IOP SBUS source failed edge capture or consumed time");
     hardware.write_iop_sbus_control(2);
-    check(hardware.state() == expected, "repeated IOP source assertion fabricated edge");
+    check((*snapshot(hardware)) == expected, "repeated IOP source assertion fabricated edge");
     hardware.write(stat, 2);
-    check(hardware.iop_sbus_control() == 2 && !hardware.state().sbus_interrupt_high,
+    check(hardware.iop_sbus_control() == 2 && !(*snapshot(hardware)).sbus_interrupt_high,
           "EE W1C cleared IOP source");
     hardware.write_iop_sbus_control(2);
     check(hardware.read(stat) == 0, "held IOP source relatched after W1C");
     hardware.write_iop_sbus_control(0);
-    check(hardware.state().sbus_interrupt_high && hardware.read(stat) == 0,
+    check((*snapshot(hardware)).sbus_interrupt_high && hardware.read(stat) == 0,
           "IOP clear created IRQ or failed to release line");
     hardware.write(timer(0), 0x5566); hardware.write_iop_sbus_control(2);
     hardware.write_iop_sbus_control(0);
@@ -98,34 +109,34 @@ void iop_source_and_combined_line() {
     hardware.set_sbus_interrupt_line(false); hardware.write(stat, 2);
     hardware.write(timer(0), 0x7788); hardware.write_iop_sbus_control(2);
     hardware.write_iop_sbus_control(0);
-    check(!hardware.state().sbus_interrupt_high && hardware.read(stat) == 0 &&
+    check(!(*snapshot(hardware)).sbus_interrupt_high && hardware.read(stat) == 0 &&
           hardware.read(timer(0) + 0x30) == 0x5566,
           "IOP source overrode externally held-low line or recaptured without edge");
     hardware.write_iop_sbus_control(2); hardware.set_sbus_interrupt_line(true);
-    check(!hardware.state().sbus_interrupt_high && hardware.read(stat) == 0,
+    check(!(*snapshot(hardware)).sbus_interrupt_high && hardware.read(stat) == 0,
           "external release overrode asserted IOP source");
     hardware.write_iop_sbus_control(0);
-    check(hardware.state().sbus_interrupt_high, "combined line did not release when both sources inactive");
-    const auto good = hardware.state();
+    check((*snapshot(hardware)).sbus_interrupt_high, "combined line did not release when both sources inactive");
+    const auto good_storage = snapshot(hardware); const auto& good = *good_storage;
     for (const auto value : {1U, 3U, 4U, 0xffffffffU}) {
         invalid([&] { hardware.write_iop_sbus_control(value); });
-        check(hardware.state() == good, "unsupported IOP SBUS control bits mutated hardware");
-        auto bad = good; bad.iop_sbus_control = value;
+        check((*snapshot(hardware)) == good, "unsupported IOP SBUS control bits mutated hardware");
+        const auto bad_storage = state_copy(good); auto& bad = *bad_storage; bad.iop_sbus_control = value;
         invalid([&] { hardware.restore(bad); });
-        check(hardware.state() == good, "invalid IOP SBUS snapshot restore was not atomic");
+        check((*snapshot(hardware)) == good, "invalid IOP SBUS snapshot restore was not atomic");
     }
-    auto inconsistent = good; inconsistent.sbus_interrupt_high = false;
+    const auto inconsistent_storage = state_copy(good); auto& inconsistent = *inconsistent_storage; inconsistent.sbus_interrupt_high = false;
     invalid([&] { hardware.restore(inconsistent); });
-    check(hardware.state() == good, "inconsistent combined SBUS level accepted or mutated state");
+    check((*snapshot(hardware)) == good, "inconsistent combined SBUS level accepted or mutated state");
     // Mailbox writes and a zero-length SIF transfer must not assert this source.
     hardware.write(0x1000f200, 0x12345678);
     hardware.write(0x1000f220, 0x10);
-    check(hardware.iop_sbus_control() == 0 && hardware.state().sbus_interrupt_high,
+    check(hardware.iop_sbus_control() == 0 && (*snapshot(hardware)).sbus_interrupt_high,
           "SIF mailbox fabricated IOP SBUS source");
     hardware.write(0x1000e000, 1); hardware.write(0x1000c400, 0x101);
     hardware.advance(1, {});
     check((hardware.read(0x1000e010) & 0x40) != 0 && hardware.iop_sbus_control() == 0 &&
-          hardware.state().sbus_interrupt_high && hardware.read(stat) == 0,
+          (*snapshot(hardware)).sbus_interrupt_high && hardware.read(stat) == 0,
           "SIF DMA completion fabricated SBUS interrupt");
 }
 
@@ -137,25 +148,25 @@ void rejected_iop_bus_accesses() {
         {0x85090000, 0}, {0x81090000, 0}  // LH/LB unsupported widths
     };
     for (const auto access : cases) {
-        Hardware hardware;
+        const auto hardware_storage = std::make_unique<Hardware>(); auto& hardware = *hardware_storage;
         hardware.write(timer(0), 0x1234); hardware.write(timer(1), 0x5678);
         hardware.write_iop_sbus_control(2);
         auto& iop = hardware.iop(); iop.write32(0, access.opcode); iop.start();
-        auto cpu = iop.state(); cpu.gpr[8] = 0x1f801450; cpu.gpr[9] = access.value;
-        iop.restore(cpu); const auto before = hardware.state();
+        const auto cpu_storage = snapshot(iop); auto& cpu = *cpu_storage; cpu.gpr[8] = 0x1f801450; cpu.gpr[9] = access.value;
+        iop.restore(cpu); const auto before_storage = snapshot(hardware); const auto& before = *before_storage;
         hardware.advance(1, {});
         check(hardware.stop().has_value() && iop.state().stop.has_value(),
               "unsupported IOP SBUS bus access was accepted");
         cpu.stop = iop.state().stop;
-        check(iop.state() == cpu && hardware.state().timers == before.timers &&
-              hardware.iop_sbus_control() == 2 && !hardware.state().sbus_interrupt_high &&
-              hardware.state().sbus_external_high && hardware.read(stat) == 2,
+        check(iop.state() == cpu && (*snapshot(hardware)).timers == before.timers &&
+              hardware.iop_sbus_control() == 2 && !(*snapshot(hardware)).sbus_interrupt_high &&
+              (*snapshot(hardware)).sbus_external_high && hardware.read(stat) == 2,
               "rejected IOP SBUS bus access partially changed CPU/source/HOLD state");
     }
 }
 
 void memory_contract() {
-    Memory memory;
+    const auto memory_storage = std::make_unique<Memory>(); auto& memory = *memory_storage;
     memory.write(timer(0) + 0x30, 4, 0xabcddcba);
     check(memory.read(timer(0) + 0x30, 4) == 0xdcba, "Memory HOLD word forwarding");
     for (const unsigned width : {1U, 2U, 8U}) {
@@ -173,7 +184,7 @@ void memory_contract() {
           memory.hardware().now() == 0, "Memory SBUS forwarding consumed time or missed counts");
 }
 void system_guest_and_replay() {
-    System system; auto& memory = system.memory();
+    const auto system_storage = std::make_unique<System>(); auto& system = *system_storage; auto& memory = system.memory();
     memory.write(0, 4, 0x1000ffff); memory.write(4, 4, 0);
     // Original literal EE handler reads both captured counters, saves them to
     // RAM, acknowledges SBUS only, counts services, and returns through ERET.
@@ -191,10 +202,10 @@ void system_guest_and_replay() {
     };
     std::uint32_t pc = 0x200;
     for (const auto instruction : handler) { memory.write(pc, 4, instruction); pc += 4; }
-    auto cpu = system.cpu().state(); cpu.cop0.status = 0x10401; system.cpu().restore(cpu);
+    const auto cpu_storage = snapshot(system.cpu()); auto& cpu = *cpu_storage; cpu.cop0.status = 0x10401; system.cpu().restore(cpu);
     memory.write(mask, 4, 2); memory.write(timer(0), 4, 0x1234); memory.write(timer(1), 4, 0x5678);
     memory.set_sbus_interrupt_line(false);
-    const auto low = system.state();
+    const auto low_storage = snapshot(system); const auto& low = *low_storage;
     std::vector<InstructionTrace> first, replay;
     check(system.run(12, &first).budget_exhausted && system.cpu().state().gpr[16].low == 1 &&
           memory.read(0x1000, 4) == 0x1234 && memory.read(0x1004, 4) == 0x5678 &&
@@ -204,31 +215,31 @@ void system_guest_and_replay() {
     check(!memory.hardware().int0(), "low-line handler acknowledgement fabricated another IRQ");
     memory.write(timer(0), 4, 0xabcd); memory.write(timer(1), 4, 0xef01);
     memory.set_sbus_interrupt_line(true);
-    const auto high = system.state();
+    const auto high_storage = snapshot(system); const auto& high = *high_storage;
     memory.set_sbus_interrupt_line(false);
     check(system.run(12, &first).budget_exhausted && system.cpu().state().gpr[16].low == 2 &&
           memory.read(0x1000, 4) == 0xabcd && memory.read(0x1004, 4) == 0xef01 &&
           !memory.hardware().int0(), "rearmed SBUS did not produce second captured guest result");
-    const auto expected = system.state();
+    const auto expected_storage = snapshot(system); const auto& expected = *expected_storage;
     system.restore(low);
     check(system.run(5, &replay).budget_exhausted && system.run(7, &replay).budget_exhausted,
           "low checkpoint replay execution");
     memory.set_sbus_interrupt_line(false);
     memory.write(timer(0), 4, 0xabcd); memory.write(timer(1), 4, 0xef01);
     memory.set_sbus_interrupt_line(true);
-    check(system.state() == high, "low-line snapshot lost SBUS level or HOLD state");
+    check((*snapshot(system)) == high, "low-line snapshot lost SBUS level or HOLD state");
     memory.set_sbus_interrupt_line(false);
-    check(system.run(12, &replay).budget_exhausted && system.state() == expected && first == replay,
+    check(system.run(12, &replay).budget_exhausted && (*snapshot(system)) == expected && first == replay,
           "full-System SBUS edge replay changed state or EE trace");
     system.restore(high); memory.set_sbus_interrupt_line(false);
-    check(system.run(12).budget_exhausted && system.state() == expected,
+    check(system.run(12).budget_exhausted && (*snapshot(system)) == expected,
           "rearmed high-line snapshot did not preserve next falling edge");
-    auto bad = expected; bad.memory.hardware.timers[2].hold = 1;
+    const auto bad_storage = state_copy(expected); auto& bad = *bad_storage; bad.memory.hardware.timers[2].hold = 1;
     invalid([&] { system.restore(bad); });
-    check(system.state() == expected, "invalid HOLD System restore was not atomic");
+    check((*snapshot(system)) == expected, "invalid HOLD System restore was not atomic");
 }
 void iop_guest_pulse_and_replay() {
-    System system; auto& memory = system.memory(); auto& iop = memory.iop();
+    const auto system_storage = std::make_unique<System>(); auto& system = *system_storage; auto& memory = system.memory(); auto& iop = memory.iop();
     memory.write(0, 4, 0x1000ffff); memory.write(4, 4, 0);
     constexpr std::uint32_t handler[]{
         0x3c081000, 0x8d090030, 0x8d0a0830, 0xac091000, 0xac0a1004,
@@ -236,7 +247,7 @@ void iop_guest_pulse_and_replay() {
     };
     std::uint32_t pc = 0x200;
     for (const auto word : handler) { memory.write(pc, 4, word); pc += 4; }
-    auto cpu = system.cpu().state(); cpu.cop0.status = 0x10401; system.cpu().restore(cpu);
+    const auto cpu_storage = snapshot(system.cpu()); auto& cpu = *cpu_storage; cpu.cop0.status = 0x10401; system.cpu().restore(cpu);
     memory.write(mask, 4, 2); memory.write(timer(0), 4, 0x2468); memory.write(timer(1), 4, 0xace0);
     // Original IOP guest performs SDK-style control read/OR bit1/write, repeats
     // assertion, observes the source, then clears it after the EE has serviced it.
@@ -256,27 +267,27 @@ void iop_guest_pulse_and_replay() {
     iop.start();
     check(system.run(2).budget_exhausted && iop.state().pending_load == IopLoad{9, 0},
           "IOP SBUS control read did not use normal pending-load path");
-    const auto pending = system.state(); std::vector<InstructionTrace> first, replay;
+    const auto pending_storage = snapshot(system); const auto& pending = *pending_storage; std::vector<InstructionTrace> first, replay;
     check(system.run(3, &first).budget_exhausted && memory.hardware().iop_sbus_control() == 2 &&
-          !memory.hardware().state().sbus_interrupt_high && memory.hardware().state().sbus_external_high,
+          !(*snapshot(memory.hardware())).sbus_interrupt_high && (*snapshot(memory.hardware())).sbus_external_high,
           "IOP guest failed to assert SBUS independently of external line");
-    const auto asserted = system.state();
+    const auto asserted_storage = snapshot(system); const auto& asserted = *asserted_storage;
     check(system.run(56, &first).budget_exhausted && !memory.hardware().stop() &&
           system.cpu().state().gpr[16].low == 2 && memory.read(0x1000, 4) == 0x2468 &&
           memory.read(0x1004, 4) == 0xace0 && iop.read32(0x1000) == 2 && iop.read32(0x1004) == 0 &&
-          memory.hardware().iop_sbus_control() == 0 && memory.hardware().state().sbus_interrupt_high &&
+          memory.hardware().iop_sbus_control() == 0 && (*snapshot(memory.hardware())).sbus_interrupt_high &&
           !memory.hardware().int0(), "IOP pulse/EE HOLD handler/source acknowledgement result");
-    const auto expected = system.state();
+    const auto expected_storage = snapshot(system); const auto& expected = *expected_storage;
     system.restore(asserted);
-    check(system.run(56).budget_exhausted && system.state() == expected,
+    check(system.run(56).budget_exhausted && (*snapshot(system)) == expected,
           "asserted IOP source replay changed captured HOLD or retriggered interrupt");
     system.restore(pending);
     check(system.run(4, &replay).budget_exhausted && system.run(55, &replay).budget_exhausted &&
-          system.state() == expected && first == replay,
+          (*snapshot(system)) == expected && first == replay,
           "pending control-load replay changed full System state or EE trace");
-    auto bad = expected; bad.memory.hardware.sbus_interrupt_high = false;
+    const auto bad_storage = state_copy(expected); auto& bad = *bad_storage; bad.memory.hardware.sbus_interrupt_high = false;
     invalid([&] { system.restore(bad); });
-    check(system.state() == expected, "inconsistent SBUS System snapshot restore was not atomic");
+    check((*snapshot(system)) == expected, "inconsistent SBUS System snapshot restore was not atomic");
 }
 
 }
