@@ -20,7 +20,7 @@
 namespace critterlink {
 
 struct TimerState {
-    std::uint16_t count{}, compare{}, mode{}, phase{};
+    std::uint16_t count{}, compare{}, mode{}, phase{}, hold{};
     bool operator==(const TimerState&) const = default;
 };
 struct GifDmaState {
@@ -57,6 +57,7 @@ struct HardwareState {
     GifFifoState gif_fifo;
     IopIntcState iop_intc;
     IopTimersState iop_timers;
+    bool sbus_interrupt_high{true};
     bool operator==(const HardwareState&) const = default;
 };
 
@@ -73,6 +74,8 @@ public:
     void advance_iop_pixel_clock(std::uint64_t ticks);
     void set_iop_hblank(bool active);
     void set_iop_vblank(bool active);
+    // Physical active-low SBUS request; falling edges capture HOLD0/1.
+    void set_sbus_interrupt_line(bool high) noexcept;
     HardwareState state() const;
     void restore(const HardwareState& state);
     bool int0() const noexcept;
@@ -100,6 +103,7 @@ private:
     bool enqueue_gif(std::array<std::uint32_t, 4> words);
     Scheduler scheduler_;
     std::array<TimerState, 4> timers_{};
+    bool sbus_interrupt_high_{true};
     std::uint32_t interrupt_status_{}, interrupt_mask_{};
     GifDmaState dma_;
     Graphics graphics_;

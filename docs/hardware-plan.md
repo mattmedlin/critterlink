@@ -112,7 +112,7 @@ error. Instructions cannot be fetched from MMIO.
 
 | Registers | Implemented behavior |
 | --- | --- |
-| Timer n at `0x10000000 + n*0x800`, COUNT +0, MODE +0x10, COMP +0x20 | Four 16-bit counters, logical bus divisors 1/16/256, enable, zero-on-compare, compare/overflow flags and interrupt enables |
+| Timer n at `0x10000000 + n*0x800`, COUNT +0, MODE +0x10, COMP +0x20 | Four 16-bit counters, logical bus divisors 1/16/256, enable, zero-on-compare, compare/overflow flags and interrupt enables; HOLD +0x30 on timers 0/1 |
 | INTC_STAT `0x1000f000` | Latched sources, write-one-clear; timers use bits 9–12 |
 | INTC_MASK `0x1000f010` | Write-one-toggle; INT0 reflects enabled pending sources |
 | D_CTRL `0x1000e000` | DMAE bit0; disabling pauses implemented EE DMA endpoints |
@@ -136,7 +136,7 @@ continues. Stopping CHCR discards that channel's pending qword while retaining
 already-consumed VIF state; callers must provide the remaining stream when
 restarting. This is a diagnostic transfer policy, not FIFO/bus cycle emulation.
 
-Missing: timer gates, HBlank/VBlank clocks, SBUS HOLD, real-time frequencies,
+Missing: timer gates, HBlank/VBlank clocks, device-origin SBUS wiring, real-time frequencies,
 other DMA channels, chain/interleave modes,
 scratchpad DMA, hardware-accurate FIFO capacities, arbitration and cycle-level
 bus timing. Implemented VIF stalls and SIF bounded queues are documented diagnostic
@@ -148,6 +148,33 @@ until the flag is acknowledged, and COUNT or clock/enable changes reset the
 prescaler phase. Tests lock down this deterministic contract; they are not
 silicon-conformance evidence. The primary manual describes register bits and
 flag acknowledgement but does not resolve these timing/rearm details fully.
+
+### SBUS capture and timer HOLD
+
+`Hardware::set_sbus_interrupt_line(high)` accepts the physical active-low SBUS
+request level; Memory forwards the same input for System integration. A falling
+edge copies COUNT0/1 into HOLD0/1 and latches INTC_STAT bit1 regardless of INTC_MASK.
+A held-low request does not create another event, including after W1C
+acknowledgement. A rising edge only rearms detection. A subsequent falling edge
+recaptures counts even if the previous status bit remains set. This input does
+not advance scheduler time or change timer count, phase, mode, or compare.
+
+HOLD registers at 0x10000030 and 0x10000830 support aligned word reads/writes,
+retaining low16 bits and reading upper16 as zero. Timers2/3 have no HOLD and
+reject access; their placeholder snapshot HOLD fields must remain zero.
+Snapshot state includes captured values and the last physical request level.
+The initial inactive-high level and zero HOLD values are deterministic reset
+choices, not measured silicon reset values.
+
+The manufacturer EE User's Manual v6.0 describes falling-edge SBUS detection in
+the INTC table (printed p28), timer capture (p34), and writable HOLD (pp35,39).
+`ee_sbus_hold` checks those register/event rules, both mask states, edge history,
+invalid-state atomicity and a literal EE guest interrupt handler that reads both
+captures, acknowledges SBUS and returns through ERET. Checkpoints before service
+and after rearming reproduce full System state and EE traces. Host-supplied
+request transitions exercise the functional input; current SIF DMA completions
+are not automatically treated as SBUS requests. Device-origin SBUS generation,
+physical synchronizer latency and independently measured timing remain open.
 
 ## Diagnostic and independent expectations
 

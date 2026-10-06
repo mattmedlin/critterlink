@@ -86,7 +86,10 @@ std::uint32_t Hardware::read(std::uint32_t address) const {
         case 0: return timers_[index].count;
         case 0x10: return timers_[index].mode;
         case 0x20: return timers_[index].compare;
-        default: throw std::invalid_argument("unsupported timer register (HOLD/SBUS is not implemented)");
+        case 0x30:
+            require(index < 2, "HOLD exists only for timers 0 and 1");
+            return timers_[index].hold;
+        default: throw std::invalid_argument("unsupported timer register");
         }
     }
     switch (address) {
@@ -128,7 +131,10 @@ void Hardware::write(std::uint32_t address, std::uint32_t value) {
             return;
         }
         case 0x20: timer.compare = static_cast<std::uint16_t>(value); return;
-        default: throw std::invalid_argument("unsupported timer register (HOLD/SBUS is not implemented)");
+        case 0x30:
+            require((address - timer_base) / 0x800 < 2, "HOLD exists only for timers 0 and 1");
+            timer.hold = static_cast<std::uint16_t>(value); return;
+        default: throw std::invalid_argument("unsupported timer register");
         }
     }
     switch (address) {
@@ -223,6 +229,15 @@ void Hardware::tick_gif() {
     gif_fifo_.words[gif_fifo_.head] = {};
     gif_fifo_.head = static_cast<std::uint8_t>((gif_fifo_.head + 1U) % 16U);
     --gif_fifo_.count;
+}
+
+void Hardware::set_sbus_interrupt_line(bool high) noexcept {
+    if (sbus_interrupt_high_ && !high) {
+        timers_[0].hold = timers_[0].count;
+        timers_[1].hold = timers_[1].count;
+        interrupt_status_ |= 2U;
+    }
+    sbus_interrupt_high_ = high;
 }
 
 void Hardware::tick_timers() {
@@ -383,7 +398,7 @@ void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram, std::sp
 }
 
 HardwareState Hardware::state() const {
-    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state(), sio2_.state(), cdvd_.state(), gif_fifo_, iop_intc_.state(), iop_timers_.state()};
+    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state(), sio2_.state(), cdvd_.state(), gif_fifo_, iop_intc_.state(), iop_timers_.state(), sbus_interrupt_high_};
 }
 
 void Hardware::restore(const HardwareState& state) {
@@ -402,6 +417,7 @@ void Hardware::restore(const HardwareState& state) {
         require((timer.mode & ~0xfc3u) == 0 && (timer.mode & 3u) != 3 && timer.phase < divisor(timer.mode),
                 "invalid timer snapshot");
     }
+    require(state.timers[2].hold == 0 && state.timers[3].hold == 0, "invalid absent timer HOLD register");
     require((state.interrupt_status & ~0x7fffu) == 0 && (state.interrupt_mask & ~0x7fffu) == 0,
             "invalid INTC snapshot");
     require((state.dma.control & ~1u) == 0 && (state.dma.status & ~dma_supported_status) == 0 &&
@@ -431,6 +447,7 @@ void Hardware::restore(const HardwareState& state) {
     }
     replacement.gif_fifo_ = state.gif_fifo;
     replacement.timers_ = state.timers;
+    replacement.sbus_interrupt_high_ = state.sbus_interrupt_high;
     replacement.interrupt_status_ = state.interrupt_status;
     replacement.interrupt_mask_ = state.interrupt_mask;
     replacement.dma_ = state.dma;
