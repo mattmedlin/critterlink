@@ -168,8 +168,8 @@ bool Iop::step(IopBus* bus) {
                 if(shift!=0)throw std::invalid_argument("reserved IOP variable-shift field");
                 write=IopLoad{rd,fn==4?right<<(left&31U):fn==6?right>>(left&31U):arithmetic_right(right,left&31U)};break;
             case 8:case 9:
-                if(rt!=0 || shift!=0 || (fn==8 && rd!=0) || (fn==9 && rd!=0 && rd==rs))
-                    throw std::invalid_argument("unsupported IOP jump encoding or link overlap");
+                if(rt!=0 || shift!=0 || (fn==8 && rd!=0))
+                    throw std::invalid_argument("unsupported IOP jump encoding");
                 if(!state_.architectural_exceptions && (left&3U)!=0)throw std::invalid_argument("misaligned IOP jump target");
                 set_branch(left);if(fn==9)write=IopLoad{rd,state_.pc+8U};break;
             case 12:case 13:throw IopException{fn==12?8U:9U,{}};

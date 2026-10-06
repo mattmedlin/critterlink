@@ -32,8 +32,9 @@ modeled. The operation paths do not establish complete physical CPU conformance.
 
 Taken and untaken branches execute one delay slot. Conditional links write PC+8
 regardless of the condition. J/JAL retain the upper bits of PC+4. JALR uses its
-specified link register. Branches in delay slots and nonrestartable link/source
-overlaps stop explicitly. In architectural mode an unaligned JR/JALR destination
+specified link register after capturing the original target, including rs=rd
+following the published PS2 observation below. Branches in delay slots and
+conditional-link/source overlaps still stop explicitly. In architectural mode an unaligned JR/JALR destination
 faults on the target fetch, after its delay slot; the diagnostic profile retains
 its earlier stop-at-jump behavior.
 
@@ -213,3 +214,20 @@ assembler pseudo-operations and are excluded: they do not establish a native
 64-bit IOP load. The seven probes do not settle consecutive same-register loads,
 all bypass hazards, pipeline timing or general IOP conformance. No production
 CPU change was needed to match these observations.
+
+## Observed JALR source/link overlap
+
+The pinned [branchdelay.c](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/iop/branchdelay.c)
+`test_jalr_rs_rd_match` uses the same source and destination register;
+[branchdelay.expected](https://github.com/unknownbrackets/ps2autotests/blob/97469ffbed8631277b94e28d01dabd702aa97ef3/tests/cpu/iop/branchdelay.expected)
+records result 2, reaching the original target. Critterlink previously rejected
+this encoding. It now captures that target before writing the link register.
+This implements an observed PS2 behavior even though overlapping registers are
+not a portable, restartable MIPS programming idiom. It does not claim a rule for
+restarting this sequence after a delay-slot exception.
+
+`iop_jump_link` checks the observed path in both CPU profiles and adds original
+checks for link values, delay-slot writes, pending loads, register zero and
+reserved-field rejection. Saving between jump and slot reproduces the captured
+target and full System state under split execution budgets. These additional
+checks are integration invariants, not new console measurements.
