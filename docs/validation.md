@@ -1141,3 +1141,37 @@ passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `09f69a79b8cf87f63fb44792c0f5d7a7554f7afd`. These are published numerical/control
 observations plus original deterministic integration checks, not new hardware
 measurements, pipeline timing or actual firmware boot. #19 and #4 remain open.
+
+## EE timer HOLD and guest-driven SBUS requests
+
+Production source `6d9887c` adds writable low16 HOLD0/1 registers and captures
+their counters on falling SBUS requests. IOP word writes to control0 at
+0x1f801450 implement request bit1; explicit external input combines with it
+without releasing another asserted contributor. Saved state retains both sources,
+combined edge history and captures, with consistency validation on restore.
+The [SBUS contract](hardware-plan.md#sbus-capture-and-timer-hold) documents primary
+manual/SDK evidence, initial-state/readback assumptions and unsupported controls.
+
+An original IOP program reads, asserts, repeats and clears the request twice.
+An EE guest reads the captured counters, acknowledges INTC and returns through
+ERET. Pending-load, asserted-source and rearmed checkpoints reproduce full
+System state and EE traces. Tests also cover masks, independent acknowledgements,
+external/source combination, mailbox/DMA independence, unsupported MMIO and
+invalid-state rejection. This is functional integration, not full SBUS control
+coverage, physical timing, firmware boot or milestone #4 completion.
+
+The first final-source CI exposed Windows Debug stack exhaustion in the new test
+fixture. `030f489` moves large fixtures and snapshots to heap storage without
+changing production code or removing checks. A local unoptimized stack-usage
+measurement fell from a maximum 980080-byte frame to 2784 bytes; the same Debug
+test that crashed under a 1 MiB stack limit then passed under that limit.
+
+All 64 local suites passed Debug, Release and ASan/UBSan (333.83, 17.06 and
+685.77 seconds). Those full runs used the test before the stack fix; production
+code was unchanged. Final focused reruns after the fix passed Debug,
+Release and ASan/UBSan (11.85, 0.49 and 23.54 seconds).
+
+[GitHub Actions run 37528850785](https://github.com/mattmedlin/critterlink/actions/runs/37528850785)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
+`030f4896b5a315b58eb4a6fded63edf0eb8b6094`, including all 64 suites on each
+configuration and the Windows Debug stack regression. #19 and #4 remain open.
