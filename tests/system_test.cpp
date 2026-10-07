@@ -62,12 +62,12 @@ int main() {
         check(fault, "unsupported MMIO width");
 
         System bad_mode;
-        // CPU store to unsupported timer gate mode must stop with MMIO diagnostic.
+        // CPU store to reserved timer MODE bit must stop with MMIO diagnostic.
         bad_mode.memory().write(0, 4, 0x3c011000);
-        bad_mode.memory().write(4, 4, 0x24020004);
+        bad_mode.memory().write(4, 4, 0x24021000);
         bad_mode.memory().write(8, 4, 0xac220010);
         check(bad_mode.run(4).retired == 2 && bad_mode.cpu().state().stop.has_value(), "CPU MMIO failure");
-        check(bad_mode.cpu().state().stop->diagnostic.find("gate/HBlank") != std::string::npos &&
+        check(bad_mode.cpu().state().stop->diagnostic.find("reserved timer MODE") != std::string::npos &&
               bad_mode.memory().hardware().now() == 2, "failed instruction advanced devices");
         std::cout << "system integration and restoration tests passed\n";
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

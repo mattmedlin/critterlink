@@ -13,7 +13,32 @@ constexpr std::uint32_t d2_chcr = 0x1000a000, d2_madr = 0x1000a010, d2_qwc = 0x1
 constexpr std::uint32_t d_ctrl = 0x1000e000, d_stat = 0x1000e010;
 constexpr std::uint32_t gif_ctrl = 0x10003000, gif_stat = 0x10003020;
 constexpr std::uint32_t dma_supported_status = 0x00668066; // channels 1/2/5/6 flags/masks and bus error
-unsigned divisor(std::uint16_t mode) { return (mode & 3u) == 0 ? 1u : (mode & 3u) == 1 ? 16u : 256u; }
+unsigned divisor(std::uint16_t mode) {
+    constexpr std::array<unsigned, 4> divisors{1, 16, 256, 1};
+    return divisors[mode & 3u];
+}
+bool effective_timer_gate(std::uint16_t mode) {
+    return (mode & 4u) != 0 && !((mode & 3u) == 3 && (mode & 8u) == 0);
+}
+unsigned timer_gate_mode(std::uint16_t mode) { return (mode >> 4u) & 3u; }
+bool timer_running(const TimerState& timer, bool hblank, bool vblank) {
+    if ((timer.mode & 0x80u) == 0) { return false; }
+    if (!effective_timer_gate(timer.mode)) { return true; }
+    if (timer_gate_mode(timer.mode) != 0) { return !timer.gate_wait; }
+    return !((timer.mode & 8u) != 0 ? vblank : hblank);
+}
+void timer_gate_edge(std::array<TimerState, 4>& timers, bool vertical, bool rising) {
+    for (auto& timer : timers) {
+        if (!effective_timer_gate(timer.mode) || ((timer.mode & 8u) != 0) != vertical) { continue; }
+        const auto mode = timer_gate_mode(timer.mode);
+        if (mode == 3 || (mode == 1 && rising) || (mode == 2 && !rising)) {
+            // Functional policy: selected edges reset even when CUE is clear.
+            timer.count = 0;
+            timer.phase = 0;
+            timer.gate_wait = false;
+        }
+    }
+}
 void require(bool ok, const char* reason) { if (!ok) { throw std::invalid_argument(reason); } }
 class PeripheralBus final : public IopBus {
 public:
@@ -126,11 +151,16 @@ void Hardware::write(std::uint32_t address, std::uint32_t value) {
             timer.phase = 0;
             return;
         case 0x10: {
-            require((value & ~0xfc3u) == 0 && (value & 3u) != 3,
-                    "timer gate/HBlank modes or reserved MODE bits are unsupported");
+            require((value & ~0xfffu) == 0, "reserved timer MODE bits are unsupported");
             const auto flags = (timer.mode & 0xc00u) & ~(value & 0xc00u);
             if ((timer.mode & 0x83u) != (value & 0x83u)) { timer.phase = 0; }
-            timer.mode = static_cast<std::uint16_t>((value & 0x3c3u) | flags);
+            // Only clock/gate configuration changes arm an edge gate. CUE,
+            // interrupt enables and flag acknowledgements preserve its start state.
+            if ((timer.mode & 0x3fu) != (value & 0x3fu)) {
+                const auto mode = static_cast<std::uint16_t>(value);
+                timer.gate_wait = effective_timer_gate(mode) && timer_gate_mode(mode) != 0;
+            }
+            timer.mode = static_cast<std::uint16_t>((value & 0x3ffu) | flags);
             return;
         }
         case 0x20: timer.compare = static_cast<std::uint16_t>(value); return;
@@ -255,10 +285,27 @@ void Hardware::sample_sbus_interrupt() noexcept {
     sbus_interrupt_high_ = high;
 }
 
-void Hardware::tick_timers() {
+void Hardware::set_ee_hblank(bool active) noexcept {
+    if (ee_hblank_ == active) { return; }
+    ee_hblank_ = active;
+    timer_gate_edge(timers_, false, active);
+    // Functional convention: HBlank rising supplies one external count tick,
+    // after processing gates. This input never advances the bus scheduler.
+    if (active) { tick_timers(true); }
+}
+
+void Hardware::set_ee_vblank(bool active) noexcept {
+    if (ee_vblank_ == active) { return; }
+    ee_vblank_ = active;
+    timer_gate_edge(timers_, true, active);
+    interrupt_status_ |= active ? 4u : 8u;
+}
+
+void Hardware::tick_timers(bool external_clock) {
     for (std::size_t n = 0; n < timers_.size(); ++n) {
         auto& timer = timers_[n];
-        if ((timer.mode & 0x80u) == 0) { continue; }
+        if (((timer.mode & 3u) == 3) != external_clock ||
+            !timer_running(timer, ee_hblank_, ee_vblank_)) { continue; }
         ++timer.phase;
         if (timer.phase < divisor(timer.mode)) { continue; }
         timer.phase = 0;
@@ -413,7 +460,7 @@ void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram, std::sp
 }
 
 HardwareState Hardware::state() const {
-    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state(), sio2_.state(), cdvd_.state(), gif_fifo_, iop_intc_.state(), iop_timers_.state(), sbus_interrupt_high_, sbus_external_high_, iop_sbus_control_};
+    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state(), sio2_.state(), cdvd_.state(), gif_fifo_, iop_intc_.state(), iop_timers_.state(), sbus_interrupt_high_, sbus_external_high_, iop_sbus_control_, ee_hblank_, ee_vblank_};
 }
 
 void Hardware::restore(const HardwareState& state) {
@@ -429,7 +476,8 @@ void Hardware::restore(const HardwareState& state) {
     require(state.scheduler.next_sequence == now + (now != std::numeric_limits<std::uint64_t>::max() ? 1u : 0u),
             "hardware scheduler sequence does not match logical time");
     for (const auto& timer : state.timers) {
-        require((timer.mode & ~0xfc3u) == 0 && (timer.mode & 3u) != 3 && timer.phase < divisor(timer.mode),
+        require((timer.mode & ~0xfffu) == 0 && timer.phase < divisor(timer.mode) &&
+                (!timer.gate_wait || (effective_timer_gate(timer.mode) && timer_gate_mode(timer.mode) != 0)),
                 "invalid timer snapshot");
     }
     require((state.iop_sbus_control & ~2U) == 0 &&
@@ -468,6 +516,8 @@ void Hardware::restore(const HardwareState& state) {
     replacement.sbus_interrupt_high_ = state.sbus_interrupt_high;
     replacement.sbus_external_high_ = state.sbus_external_high;
     replacement.iop_sbus_control_ = state.iop_sbus_control;
+    replacement.ee_hblank_ = state.ee_hblank;
+    replacement.ee_vblank_ = state.ee_vblank;
     replacement.interrupt_status_ = state.interrupt_status;
     replacement.interrupt_mask_ = state.interrupt_mask;
     replacement.dma_ = state.dma;

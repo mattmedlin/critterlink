@@ -21,6 +21,7 @@ namespace critterlink {
 
 struct TimerState {
     std::uint16_t count{}, compare{}, mode{}, phase{}, hold{};
+    bool gate_wait{};
     bool operator==(const TimerState&) const = default;
 };
 struct GifDmaState {
@@ -60,6 +61,7 @@ struct HardwareState {
     bool sbus_interrupt_high{true};
     bool sbus_external_high{true};
     std::uint32_t iop_sbus_control{};
+    bool ee_hblank{}, ee_vblank{};
     bool operator==(const HardwareState&) const = default;
 };
 
@@ -76,6 +78,9 @@ public:
     void advance_iop_pixel_clock(std::uint64_t ticks);
     void set_iop_hblank(bool active);
     void set_iop_vblank(bool active);
+    // EE-only explicit blank edges; no scan timing or IOP input is synthesized.
+    void set_ee_hblank(bool active) noexcept;
+    void set_ee_vblank(bool active) noexcept;
     // External active-low SBUS contributor, combined with the IOP request.
     void set_sbus_interrupt_line(bool high) noexcept;
     std::uint32_t iop_sbus_control() const noexcept { return iop_sbus_control_; }
@@ -101,7 +106,7 @@ public:
 private:
     void sample_iop_interrupts();
     void sample_sbus_interrupt() noexcept;
-    void tick_timers();
+    void tick_timers(bool external_clock = false);
     void tick_vif_dma(std::span<const std::uint8_t> ram);
     void tick_dma(std::span<const std::uint8_t> ram);
     void tick_gif();
@@ -110,6 +115,7 @@ private:
     std::array<TimerState, 4> timers_{};
     bool sbus_interrupt_high_{true}, sbus_external_high_{true};
     std::uint32_t iop_sbus_control_{};
+    bool ee_hblank_{}, ee_vblank_{};
     std::uint32_t interrupt_status_{}, interrupt_mask_{};
     GifDmaState dma_;
     Graphics graphics_;

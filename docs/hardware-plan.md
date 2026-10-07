@@ -112,7 +112,7 @@ error. Instructions cannot be fetched from MMIO.
 
 | Registers | Implemented behavior |
 | --- | --- |
-| Timer n at `0x10000000 + n*0x800`, COUNT +0, MODE +0x10, COMP +0x20 | Four 16-bit counters, logical bus divisors 1/16/256, enable, zero-on-compare, compare/overflow flags and interrupt enables; HOLD +0x30 on timers 0/1 |
+| Timer n at `0x10000000 + n*0x800`, COUNT +0, MODE +0x10, COMP +0x20 | Four 16-bit counters, logical bus divisors 1/16/256 or explicit HBlank clock, HBlank/VBlank gates, enable, zero-on-compare, compare/overflow flags and interrupt enables; HOLD +0x30 on timers 0/1 |
 | INTC_STAT `0x1000f000` | Latched sources, write-one-clear; timers use bits 9–12 |
 | INTC_MASK `0x1000f010` | Write-one-toggle; INT0 reflects enabled pending sources |
 | D_CTRL `0x1000e000` | DMAE bit0; disabling pauses implemented EE DMA endpoints |
@@ -136,7 +136,7 @@ continues. Stopping CHCR discards that channel's pending qword while retaining
 already-consumed VIF state; callers must provide the remaining stream when
 restarting. This is a diagnostic transfer policy, not FIFO/bus cycle emulation.
 
-Missing: timer gates, HBlank/VBlank clocks, remaining SBUS sources/control modes, real-time frequencies,
+Missing: GS-driven video clocks, independent timer phase/gate conformance, remaining SBUS sources/control modes, real-time frequencies,
 other DMA channels, chain/interleave modes,
 scratchpad DMA, hardware-accurate FIFO capacities, arbitration and cycle-level
 bus timing. Implemented VIF stalls and SIF bounded queues are documented diagnostic
@@ -148,6 +148,43 @@ until the flag is acknowledged, and COUNT or clock/enable changes reset the
 prescaler phase. Tests lock down this deterministic contract; they are not
 silicon-conformance evidence. The primary manual describes register bits and
 flag acknowledgement but does not resolve these timing/rearm details fully.
+
+### EE blank inputs and gated counters
+
+`Hardware` and `Memory` expose `set_ee_hblank(bool)` and `set_ee_vblank(bool)`.
+They update EE-only signal levels; the existing IOP-only inputs remain separate.
+The GS does not yet generate these signals, and the input methods consume no
+scheduler time. VBlank rising/falling edges latch INTC bits2/3 even when masked;
+repeating the same level does not generate another event.
+
+The manufacturer timer modes (EE User's Manual v6.0, pp34–37) are implemented:
+GATE/GATS select the gate; mode0 counts while low; modes1/2/3 reset and start at
+rising/falling/both edges, then free-run subject to CUE. Selecting external
+HBlank clock disables an HBlank gate, while a VBlank gate still applies. ZRET,
+compare/overflow flags and their existing acknowledgement behavior apply to
+each admitted count tick.
+
+The following details are **functional policies awaiting independent hardware
+validation**, not measured timing:
+
+- A rising HBlank edge supplies one tick for CLKS=3; bus ticks do not increment
+  that mode. Gate changes are processed before the external tick.
+- Clock/gate configuration changes arm edge-gate waiting; configuring while the
+  level is already high still waits for a new selected edge. Flag-only, IRQ,
+  ZRET and CUE writes preserve whether the gate has started.
+- Gate pauses preserve divider phase. COUNT writes, clock/CUE changes and
+  qualifying gate edges reset phase. Qualifying edges reset count and phase
+  even when CUE is clear; CUE independently prevents counting.
+- Gate resets alone do not compare or create timer interrupts. Explicit call
+  order determines the order of separate blank signals at a logical instant.
+
+Snapshots retain both EE levels, edge-gate waiting and divider phase. External
+clock phase must be zero; waiting is valid only for an effective edge gate.
+The `ee_timer_gates` suite checks all four counters, three bus divisors, both
+gate signals, four gate modes, external clocks, IRQ flags, write policies,
+invalid snapshots and original EE guest interrupt/replay paths. These tests
+verify the documented model. They do not establish physical clock ratios,
+scan timing, simultaneous signal ordering or complete timer conformance.
 
 ### SBUS capture and timer HOLD
 

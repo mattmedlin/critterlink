@@ -59,6 +59,8 @@ public:
     void clear() noexcept;
     std::span<const std::uint8_t> bytes() const noexcept;
     void advance(std::uint64_t ticks) { hardware_.advance(ticks, ram_, boot_rom_); }
+    void set_ee_hblank(bool active) noexcept { hardware_.set_ee_hblank(active); }
+    void set_ee_vblank(bool active) noexcept { hardware_.set_ee_vblank(active); }
     void set_sbus_interrupt_line(bool high) noexcept { hardware_.set_sbus_interrupt_line(high); }
     const Hardware& hardware() const noexcept { return hardware_; }
     Iop& iop() noexcept { return hardware_.iop(); }
