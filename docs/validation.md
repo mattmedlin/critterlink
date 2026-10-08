@@ -1310,3 +1310,17 @@ The [readback contract](gs-readback.md) records alignment/count restrictions,
 synthetic status fields and producer/bus-direction policies. This is actual guest
 pixel transport within that profile, not unmodified SDK screenshot compatibility,
 full GS timing or milestone #4 completion. #20/#22/#4 remain open.
+
+## Normal DMA retained tag flags
+
+Source `aa4c449a2a5efb6dee222669f6f37e6abf6bb277` accepts retained TTE/TIE
+bits in normal EE DMA on VIF1, GIF and SIF5/6, including the SDK normal-send
+CHCR value 0x181. Tests check all flag combinations, exact payloads and completion,
+reverse-direction guards, replay, invalid modes and an original guest FINISH packet.
+Source-chain tag transport and interrupt semantics remain separate.
+
+All 73 suites passed Release (22.47 seconds), Debug (459.79 seconds) and
+ASan/UBSan (953.63 seconds).
+[GitHub Actions run 37837186852](https://github.com/mattmedlin/critterlink/actions/runs/37837186852)
+passed all eight platform/configuration jobs at that source. This closes this
+normal-mode compatibility gap; it does not complete DMA or milestone #4.
