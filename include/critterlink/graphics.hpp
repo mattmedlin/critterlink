@@ -8,6 +8,9 @@ enum class GifMode { packed, image };
 struct GraphicsTransferState {
     std::uint32_t base{}, width{}, x{}, y{}, rect_width{}, rect_height{}, cursor{};
     bool active{};
+    std::uint32_t source_base{}, source_width{}, source_x{}, source_y{};
+    std::uint8_t direction{};
+    bool local_copy{};
     bool operator==(const GraphicsTransferState&) const = default;
 };
 // Fixed 64x64 diagnostic view backed by real PSMCT32 GS local memory.
@@ -29,6 +32,8 @@ struct GraphicsState {
 };
 class Graphics {
 public:
+    // One pixel of an active local copy per diagnostic logical tick.
+    void tick();
     void submit_qword(std::array<std::uint32_t, 4> words);
     const GraphicsState& state() const noexcept { return state_; }
     void restore(const GraphicsState& state);

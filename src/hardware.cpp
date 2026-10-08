@@ -669,6 +669,10 @@ void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram, std::sp
         }
         try { if (!stop_) { vector_.tick(); } }
         catch (const std::invalid_argument& error) { stop_ = std::string("VU1: ") + error.what(); }
+        // Diagnostic scheduling: a GS copy advances before this tick's VIF/GIF
+        // delivery, so a newly received TRXDIR begins copying next logical tick.
+        // DMAE and GIF pause gate input delivery, not an already active copy.
+        if (!stop_) { graphics_.tick(); }
         if (!stop_) { tick_vif_dma(ram); }
         if (!stop_) { tick_dma(ram); }
         if (!stop_) { tick_gif(); }

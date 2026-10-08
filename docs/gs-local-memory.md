@@ -2,11 +2,11 @@
 
 The GS now has 4 MiB of heap-backed local memory. The supported transfer profile
 uploads PSMCT32 pixels through BITBLTBUF, TRXPOS, TRXREG, TRXDIR and HWREG, including
-GIF IMAGE packets. The existing fixed 64×64 sprite framebuffer shares this memory;
+GIF IMAGE packets, and bounded nonoverlapping PSMCT32 local copies. The existing fixed 64×64 sprite framebuffer shares this memory;
 its diagnostic pixel view is a validated cache of the same contents.
 
 This is a limited format and direction. Textures, depth storage/tests, blending,
-scanout, other pixel formats, local copies and guest readback remain separate work.
+scanout, other pixel formats, overlapping copies and guest readback remain separate work.
 A host inspection of VRAM is not guest local-to-host transfer support.
 
 ## Primary sources and address layout
@@ -37,7 +37,7 @@ address helper.
 | BITBLTBUF 0x50 | Retains source/destination parameters; upload uses DBP, DBW and DPSM |
 | TRXPOS 0x51 | Retains origins/direction; upload uses destination origin and forward traversal |
 | TRXREG 0x52 | Retains rectangle width and height |
-| TRXDIR 0x53 | 0 starts/restarts upload using current parameters; 3 cancels; 1/2 rejected |
+| TRXDIR 0x53 | 0 starts upload, 2 starts local copy, 3 cancels; local-to-host 1 rejected |
 | HWREG 0x54 | Two PSMCT32 pixels, lower32 then upper32; inactive writes are ignored |
 
 Starting a transfer validates and latches its complete destination rectangle
@@ -61,7 +61,41 @@ the other fields, including PRE. PACKED remains limited to one A+D descriptor;
 REGLIST remains unsupported. IMAGE data is never reinterpreted as A+D register
 addresses. A transfer can span IMAGE packets or mix A+D HWREG with IMAGE input.
 Completion is based on rectangle pixels, independent of GIF packet boundaries.
-Extra HWREG data after completion is ignored, including IMAGE padding.
+Extra HWREG data after completion is ignored, including IMAGE padding. HWREG input
+is also ignored during a local copy.
+
+## Local-to-local copies
+
+TRXDIR=2 latches both PSMCT32 buffer descriptions, origins, rectangle and DIR.
+The GS manual's page74 diagram defines the origins as upper-left corners. DIR
+chooses traversal order: 0 upper-left, 1 lower-left, 2 upper-right, 3 lower-right.
+Reversing traversal changes the first pixel, not the final source-to-destination
+mapping. Both source and destination obey the upload profile's format, width,
+coordinate and physical-range restrictions.
+
+An exact physical-word intersection check rejects overlapping rectangles before
+replacing active state. Different base pointers and coordinates can still alias;
+a coordinate-only comparison is insufficient. This is an explicit compatibility
+limitation: the inspected manual does not settle internal buffering and collision
+results for overlap, and the model does not guess memmove semantics.
+
+One pixel advances per logical hardware tick, after VU execution and before
+VIF/GIF delivery. A copy command consumed by GIF begins moving pixels on the next
+tick. DMAE and GIF pause do not pause an already started copy. Each step reads
+current source VRAM and updates shared destination storage/view; it does not
+capture a temporary full source image. These are deterministic scheduling and
+live-read policies, not measured GS timing.
+
+Snapshot progress may be odd because copies advance one pixel; uploads still
+advance in pairs. Validation rechecks both footprints, nonoverlap, direction and
+cursor before replacement. Parameter writes leave the active operation's latched
+values intact. A valid new upload/copy or cancellation replaces it; invalid starts
+leave it unchanged. Extending restart/cancellation to active local copies is an
+explicit functional policy pending hardware evidence about interruption timing.
+
+Completion clears diagnostic active state and retains the final cursor. It does
+not create a DMA, FINISH or INTC interrupt. Guest-commanded copies are verified
+through host VRAM assertions and replay; this is not guest completion polling.
 
 ## Rendering, replay and remaining work
 
@@ -78,8 +112,8 @@ GS cycle timing. Original tests exercise raw layout, uploads, padding, parser
 continuation, start/cancel, atomic errors, shared sprite storage and guest
 FIFO/DMA upload with interrupt and full-state replay.
 
-Local-to-local transfer needs directional overlap behavior and bounded progress.
+Overlapping local copies need independently established collision behavior.
 Local-to-host transfer needs FINISH/CSR, BUSDIR, reverse FIFO and a coherent host
-read path. Neither is emulated by exposing VRAM to tests. Other formats,
+read path; exposing VRAM to tests does not implement it. Other formats,
 framebuffer configurations, texture sampling and real scanout remain open.
 Milestone #4 is not complete.

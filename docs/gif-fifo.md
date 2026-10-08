@@ -1,9 +1,10 @@
 # GIF PATH3 CPU and DMA FIFO
 
-The EE can now use SQ to send packets to GIF_FIFO. CPU stores and normal channel-2
-DMA share an ordered, bounded queue of sixteen 128-bit entries. This connects the
-existing PACKED A+D sprite renderer to a guest CPU device-access path. It does not
-add other GIF packet formats, VIF DIRECT, VU XGKICK or complete GS rendering.
+The EE uses SQ to send packets to GIF_FIFO. CPU stores and normal/source-chain
+channel-2 DMA share an ordered, bounded queue of sixteen 128-bit entries. The
+consumer supports PACKED A+D drawing/register packets and IMAGE uploads into
+[GS local memory](gs-local-memory.md). REGLIST, VIF DIRECT, VU XGKICK and complete
+GS rendering remain unsupported.
 
 ## Addresses and transactions
 

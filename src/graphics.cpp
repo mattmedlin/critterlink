@@ -20,7 +20,7 @@ void validate_rectangle(const GraphicsTransferState& transfer) {
             transfer.x < transfer.width * 64 &&
             transfer.rect_width <= transfer.width * 64 - transfer.x &&
             transfer.rect_height <= 2048 - transfer.y,
-            "GS upload requires an even nonzero rectangle within buffer and coordinate bounds");
+            "GS transfer requires an even nonzero rectangle within buffer and coordinate bounds");
     // Within each 8x8 PSMCT32 block the local word offset grows with x/y.
     // Check every touched block's last pixel, including base-pointer page carry.
     const auto end_x = transfer.x + transfer.rect_width;
@@ -33,6 +33,32 @@ void validate_rectangle(const GraphicsTransferState& transfer) {
             x = next_x;
         }
         y = next_y;
+    }
+}
+void validate_copy(const GraphicsTransferState& transfer) {
+    require(transfer.direction <= 3, "invalid GS copy traversal direction");
+    auto source = transfer;
+    source.base = transfer.source_base;
+    source.width = transfer.source_width;
+    source.x = transfer.source_x;
+    source.y = transfer.source_y;
+    validate_rectangle(source);
+    // Exact physical-word intersection, not a coordinate or bounding-range
+    // approximation. Rejection is a supported-profile restriction; hardware
+    // overlap buffering and collision semantics have not been established.
+    std::vector<std::uint64_t> source_words((1U << 20) / 64);
+    for (std::uint32_t y = 0; y < transfer.rect_height; ++y) {
+        for (std::uint32_t x = 0; x < transfer.rect_width; ++x) {
+            const auto word = gs_psmct32_address(source.base, source.width, source.x + x, source.y + y) / 4;
+            source_words[word / 64] |= std::uint64_t{1} << (word % 64);
+        }
+    }
+    for (std::uint32_t y = 0; y < transfer.rect_height; ++y) {
+        for (std::uint32_t x = 0; x < transfer.rect_width; ++x) {
+            const auto word = gs_psmct32_address(transfer.base, transfer.width, transfer.x + x, transfer.y + y) / 4;
+            require((source_words[word / 64] & (std::uint64_t{1} << (word % 64))) == 0,
+                    "GS local copy physical overlap is unsupported");
+        }
     }
 }
 const std::array<std::uint16_t, 4096>& framebuffer_indices() {
@@ -60,7 +86,7 @@ void Graphics::restore(const GraphicsState& state) {
     require(state.vram.size() == (1U << 20) &&
             (state.mode == GifMode::packed || state.mode == GifMode::image) &&
             (state.bitbltbuf & ~bitbltbuf_mask) == 0 && (state.trxpos & ~trxpos_mask) == 0 &&
-            (state.trxreg & ~trxreg_mask) == 0 && (state.trxdir == 0 || state.trxdir == 3),
+            (state.trxreg & ~trxreg_mask) == 0 && (state.trxdir == 0 || state.trxdir == 2 || state.trxdir == 3),
             "invalid GS local-memory or transfer-register snapshot");
     const auto& transfer = state.transfer;
     if (transfer == GraphicsTransferState{}) {
@@ -68,8 +94,16 @@ void Graphics::restore(const GraphicsState& state) {
     } else {
         validate_rectangle(transfer);
         const auto total = transfer.rect_width * transfer.rect_height;
-        require(state.trxdir == 0 && transfer.cursor <= total && (transfer.cursor & 1u) == 0 &&
-                transfer.active == (transfer.cursor < total), "invalid GS transfer cursor snapshot");
+        require(transfer.cursor <= total && transfer.active == (transfer.cursor < total),
+                "invalid GS transfer cursor snapshot");
+        if (transfer.local_copy) {
+            require(state.trxdir == 2, "GS copy snapshot has inconsistent transfer direction");
+            validate_copy(transfer);
+        } else {
+            require(state.trxdir == 0 && (transfer.cursor & 1u) == 0 && transfer.source_base == 0 &&
+                    transfer.source_width == 0 && transfer.source_x == 0 && transfer.source_y == 0 &&
+                    transfer.direction == 0, "invalid GS upload snapshot");
+        }
     }
     const auto& indices = framebuffer_indices();
     for (std::size_t word = 0; word < indices.size(); ++word) {
@@ -78,6 +112,23 @@ void Graphics::restore(const GraphicsState& state) {
     // Copy allocation completes before replacing any of the current state.
     auto replacement = state;
     state_ = std::move(replacement);
+}
+void Graphics::tick() {
+    auto& transfer = state_.transfer;
+    if (!transfer.active || !transfer.local_copy) { return; }
+    const auto column = transfer.cursor % transfer.rect_width;
+    const auto row = transfer.cursor / transfer.rect_width;
+    // TRXPOS origins are upper-left, independent of which corner DIR visits
+    // first (GS User's Manual v6.0 pp74/133). Reverse visit order, not mapping.
+    const auto dx = (transfer.direction & 2u) != 0 ? transfer.rect_width - 1 - column : column;
+    const auto dy = (transfer.direction & 1u) != 0 ? transfer.rect_height - 1 - row : row;
+    const auto source = gs_psmct32_address(transfer.source_base, transfer.source_width,
+                                         transfer.source_x + dx, transfer.source_y + dy);
+    const auto destination = gs_psmct32_address(transfer.base, transfer.width,
+                                              transfer.x + dx, transfer.y + dy);
+    write_vram(destination, state_.vram[source / 4]);
+    ++transfer.cursor;
+    if (transfer.cursor == transfer.rect_width * transfer.rect_height) { transfer.active = false; }
 }
 void Graphics::submit_qword(std::array<std::uint32_t, 4> words) {
     const auto low = std::uint64_t{words[0]} | (std::uint64_t{words[1]} << 32);
@@ -117,7 +168,7 @@ void Graphics::write_vram(std::uint32_t byte_address, std::uint32_t value) {
 }
 void Graphics::write_hwreg(std::uint64_t value) {
     auto& transfer = state_.transfer;
-    if (!transfer.active) { return; }
+    if (!transfer.active || transfer.local_copy) { return; }
     for (unsigned half = 0; half < 2; ++half) {
         const auto x = transfer.x + transfer.cursor % transfer.rect_width;
         const auto y = transfer.y + transfer.cursor / transfer.rect_width;
@@ -171,10 +222,10 @@ void Graphics::write_register(std::uint8_t address, std::uint64_t value) {
         state_.trxreg = value;
         break;
     case 0x53: {
-        require(value == 0 || value == 3, "GS supports only host-to-local transfer or deactivation");
+        require(value == 0 || value == 2 || value == 3, "GS local-to-host transfer is unsupported");
         GraphicsTransferState transfer;
-        if (value == 0) {
-            require(((state_.bitbltbuf >> 56) & 63) == 0, "GS upload requires PSMCT32 destination");
+        if (value != 3) {
+            require(((state_.bitbltbuf >> 56) & 63) == 0, "GS transfer requires PSMCT32 destination");
             transfer.base = static_cast<std::uint32_t>((state_.bitbltbuf >> 32) & 0x3fff);
             transfer.width = static_cast<std::uint32_t>((state_.bitbltbuf >> 48) & 63);
             transfer.x = static_cast<std::uint32_t>((state_.trxpos >> 32) & 2047);
@@ -182,6 +233,16 @@ void Graphics::write_register(std::uint8_t address, std::uint64_t value) {
             transfer.rect_width = static_cast<std::uint32_t>(state_.trxreg & 4095);
             transfer.rect_height = static_cast<std::uint32_t>((state_.trxreg >> 32) & 4095);
             validate_rectangle(transfer);
+            if (value == 2) {
+                require(((state_.bitbltbuf >> 24) & 63) == 0, "GS copy requires PSMCT32 source");
+                transfer.source_base = static_cast<std::uint32_t>(state_.bitbltbuf & 0x3fff);
+                transfer.source_width = static_cast<std::uint32_t>((state_.bitbltbuf >> 16) & 63);
+                transfer.source_x = static_cast<std::uint32_t>(state_.trxpos & 2047);
+                transfer.source_y = static_cast<std::uint32_t>((state_.trxpos >> 16) & 2047);
+                transfer.direction = static_cast<std::uint8_t>((state_.trxpos >> 59) & 3);
+                transfer.local_copy = true;
+                validate_copy(transfer);
+            }
             transfer.active = true;
         }
         state_.transfer = transfer;
