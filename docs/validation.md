@@ -1209,3 +1209,22 @@ passed all eight supported platform/configuration jobs at the exact revision.
 The [chain contract](gif-dma-chain.md) records supported launch forms and
 unmeasured scheduling/restart/visibility policies. This does not establish
 complete DMAC, firmware boot or broad game compatibility. #20 and #4 remain open.
+
+## VIF1 source chains and upper tag transport
+
+Source `bc1f756ded1f2850ff768275be54bfc461dc9023` adds RAM channel1 source chains
+and TTE upper64 transport, retaining partial tag/data word cursors across stalls.
+Tests cover all source IDs, stack/TIE boundaries, parser continuation across
+tags, MPG lane alignment, preloaded CNT/TTE, error cleanup and original guest
+upload/execution with INT1 and complete replay. The final focused Debug suite
+also passed under a 1 MiB stack limit.
+
+All 68 suites passed Release (8.62 seconds) and ASan/UBSan (765.52 seconds) with
+the final tests. The full Debug run passed (388.23 seconds); it began before two
+additional test cases, which then passed in a focused final Debug rerun. No
+production code changed between those runs.
+[GitHub Actions run 37775141212](https://github.com/mattmedlin/critterlink/actions/runs/37775141212)
+passed all eight supported platform/configuration jobs at the final revision.
+The [VIF chain contract](vif-dma-chain.md) separates primary transport evidence
+from scheduling/visibility policies. SIF chains, broader VIF/VU execution,
+physical timing and other DMAC gaps remain; #20 and #4 remain open.
