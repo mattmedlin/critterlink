@@ -6,7 +6,8 @@ GIF IMAGE packets, and bounded nonoverlapping PSMCT32 local copies. The existing
 its diagnostic pixel view is a validated cache of the same contents.
 
 This is a limited format and direction. Textures, depth storage/tests, blending,
-scanout, other pixel formats, overlapping copies and guest readback remain separate work.
+scanout, other pixel formats, overlapping copies remain separate work. Guest readback has its own
+[PSMCT32 transport profile](gs-readback.md).
 A host inspection of VRAM is not guest local-to-host transfer support.
 
 ## Primary sources and address layout
@@ -37,7 +38,7 @@ address helper.
 | BITBLTBUF 0x50 | Retains source/destination parameters; upload uses DBP, DBW and DPSM |
 | TRXPOS 0x51 | Retains origins/direction; upload uses destination origin and forward traversal |
 | TRXREG 0x52 | Retains rectangle width and height |
-| TRXDIR 0x53 | 0 starts upload, 2 starts local copy, 3 cancels; local-to-host 1 rejected |
+| TRXDIR 0x53 | 0 upload, 1 readback, 2 local copy, 3 cancellation |
 | HWREG 0x54 | Two PSMCT32 pixels, lower32 then upper32; inactive writes are ignored |
 
 Starting a transfer validates and latches its complete destination rectangle
@@ -115,8 +116,7 @@ continuation, start/cancel, atomic errors, shared sprite storage and guest
 FIFO/DMA upload with interrupt and full-state replay.
 
 Overlapping local copies need independently established collision behavior.
-Local-to-host transfer still needs BUSDIR, reverse FIFO and a coherent host
-read path beyond the implemented FINISH/CSR event subset; exposing VRAM to tests
-does not implement it. Other formats,
+The separate [guest readback implementation](gs-readback.md) provides BUSDIR,
+reverse FIFO and CPU/DMA transport; host VRAM inspection is not its substitute. Other formats,
 framebuffer configurations, texture sampling and real scanout remain open.
 Milestone #4 is not complete.

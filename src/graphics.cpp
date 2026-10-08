@@ -16,11 +16,11 @@ void validate_rectangle(const GraphicsTransferState& transfer) {
     require(transfer.width >= 1 && transfer.width <= 32 && transfer.base < 16384 &&
             transfer.rect_width != 0 && transfer.rect_width <= 4095 &&
             transfer.rect_height != 0 && transfer.rect_height <= 4095 &&
-            (transfer.rect_width & 1u) == 0 && transfer.x < 2048 && transfer.y < 2048 &&
+            (transfer.local_readback || (transfer.rect_width & 1u) == 0) && transfer.x < 2048 && transfer.y < 2048 &&
             transfer.x < transfer.width * 64 &&
             transfer.rect_width <= transfer.width * 64 - transfer.x &&
             transfer.rect_height <= 2048 - transfer.y,
-            "GS transfer requires an even nonzero rectangle within buffer and coordinate bounds");
+            "GS transfer requires a supported nonzero rectangle within buffer and coordinate bounds");
     // Within each 8x8 PSMCT32 block the local word offset grows with x/y.
     // Check every touched block's last pixel, including base-pointer page carry.
     const auto end_x = transfer.x + transfer.rect_width;
@@ -86,9 +86,9 @@ void Graphics::restore(const GraphicsState& state) {
     require(state.vram.size() == (1U << 20) &&
             (state.mode == GifMode::packed || state.mode == GifMode::image) &&
             (state.bitbltbuf & ~bitbltbuf_mask) == 0 && (state.trxpos & ~trxpos_mask) == 0 &&
-            (state.trxreg & ~trxreg_mask) == 0 && (state.trxdir == 0 || state.trxdir == 2 || state.trxdir == 3),
+            (state.trxreg & ~trxreg_mask) == 0 && state.trxdir <= 3,
             "invalid GS local-memory or transfer-register snapshot");
-    require((state.imr & ~0x1f00u) == 0 && (!state.finish_pending || state.transfer.active),
+    require((state.imr & ~0x1f00u) == 0 && (!state.finish_pending || (state.transfer.active && !state.transfer.local_readback)),
             "invalid GS FINISH fence or mask snapshot");
     const auto& transfer = state.transfer;
     if (transfer == GraphicsTransferState{}) {
@@ -99,12 +99,14 @@ void Graphics::restore(const GraphicsState& state) {
         require(transfer.cursor <= total && transfer.active == (transfer.cursor < total),
                 "invalid GS transfer cursor snapshot");
         if (transfer.local_copy) {
-            require(state.trxdir == 2, "GS copy snapshot has inconsistent transfer direction");
+            require(state.trxdir == 2 && !transfer.local_readback, "GS copy snapshot has inconsistent transfer direction");
             validate_copy(transfer);
         } else {
-            require(state.trxdir == 0 && (transfer.cursor & 1u) == 0 && transfer.source_base == 0 &&
+            require((transfer.local_readback ? (state.trxdir == 1 && (total & 3u) == 0 &&
+                    (transfer.cursor & 3u) == 0) : (state.trxdir == 0 && (transfer.cursor & 1u) == 0)) &&
+                    transfer.source_base == 0 &&
                     transfer.source_width == 0 && transfer.source_x == 0 && transfer.source_y == 0 &&
-                    transfer.direction == 0, "invalid GS upload snapshot");
+                    transfer.direction == 0, "invalid GS upload or readback snapshot");
         }
     }
     const auto& indices = framebuffer_indices();
@@ -137,6 +139,28 @@ void Graphics::resolve_finish() noexcept {
         state_.finish_pending = false;
         state_.finish_event = true;
     }
+}
+std::uint32_t Graphics::remaining_readback_qwords() const noexcept {
+    const auto& transfer = state_.transfer;
+    if (!transfer.local_readback || !transfer.active) { return 0; }
+    return (transfer.rect_width * transfer.rect_height - transfer.cursor) / 4;
+}
+std::array<std::uint32_t, 4> Graphics::produce_readback_qword() {
+    auto& transfer = state_.transfer;
+    require(remaining_readback_qwords() != 0, "no GS readback qword available");
+    std::array<std::uint32_t, 4> words{};
+    // Fetch all four words before advancing the producer. Hardware owns the
+    // reverse FIFO and latches this result independently of future VRAM writes.
+    for (unsigned lane = 0; lane < 4; ++lane) {
+        const auto cursor = transfer.cursor + lane;
+        const auto x = transfer.x + cursor % transfer.rect_width;
+        const auto y = transfer.y + cursor / transfer.rect_width;
+        words[lane] = state_.vram[gs_psmct32_address(transfer.base, transfer.width, x, y) / 4];
+    }
+    transfer.cursor += 4;
+    transfer.active = transfer.cursor < transfer.rect_width * transfer.rect_height;
+    // Readback consumption does not itself request a FINISH event.
+    return words;
 }
 void Graphics::tick() {
     auto& transfer = state_.transfer;
@@ -196,7 +220,7 @@ void Graphics::write_vram(std::uint32_t byte_address, std::uint32_t value) {
 }
 void Graphics::write_hwreg(std::uint64_t value) {
     auto& transfer = state_.transfer;
-    if (!transfer.active || transfer.local_copy) { return; }
+    if (!transfer.active || transfer.local_copy || transfer.local_readback) { return; }
     for (unsigned half = 0; half < 2; ++half) {
         const auto x = transfer.x + transfer.cursor % transfer.rect_width;
         const auto y = transfer.y + transfer.cursor / transfer.rect_width;
@@ -253,17 +277,22 @@ void Graphics::write_register(std::uint8_t address, std::uint64_t value) {
         state_.trxreg = value;
         break;
     case 0x53: {
-        require(value == 0 || value == 2 || value == 3, "GS local-to-host transfer is unsupported");
+        require(value <= 3, "GS TRXDIR reserved bits");
         GraphicsTransferState transfer;
         if (value != 3) {
-            require(((state_.bitbltbuf >> 56) & 63) == 0, "GS transfer requires PSMCT32 destination");
-            transfer.base = static_cast<std::uint32_t>((state_.bitbltbuf >> 32) & 0x3fff);
-            transfer.width = static_cast<std::uint32_t>((state_.bitbltbuf >> 48) & 63);
-            transfer.x = static_cast<std::uint32_t>((state_.trxpos >> 32) & 2047);
-            transfer.y = static_cast<std::uint32_t>((state_.trxpos >> 48) & 2047);
+            transfer.local_readback = value == 1;
+            const unsigned shift = transfer.local_readback ? 0u : 32u;
+            require(((state_.bitbltbuf >> (shift + 24u)) & 63) == 0,
+                    "GS transfer requires PSMCT32 on its active buffer");
+            transfer.base = static_cast<std::uint32_t>((state_.bitbltbuf >> shift) & 0x3fff);
+            transfer.width = static_cast<std::uint32_t>((state_.bitbltbuf >> (shift + 16u)) & 63);
+            transfer.x = static_cast<std::uint32_t>((state_.trxpos >> shift) & 2047);
+            transfer.y = static_cast<std::uint32_t>((state_.trxpos >> (shift + 16u)) & 2047);
             transfer.rect_width = static_cast<std::uint32_t>(state_.trxreg & 4095);
             transfer.rect_height = static_cast<std::uint32_t>((state_.trxreg >> 32) & 4095);
             validate_rectangle(transfer);
+            require(!transfer.local_readback || ((transfer.rect_width * transfer.rect_height) & 3u) == 0,
+                    "GS readback requires whole qwords; padding is unsupported");
             if (value == 2) {
                 require(((state_.bitbltbuf >> 24) & 63) == 0, "GS copy requires PSMCT32 source");
                 transfer.source_base = static_cast<std::uint32_t>(state_.bitbltbuf & 0x3fff);
@@ -288,7 +317,7 @@ void Graphics::write_register(std::uint8_t address, std::uint64_t value) {
     case 0x61:
         // Always-ready, coalescing FINISH profile; later IMAGE data still flows
         // so an outstanding upload can complete rather than deadlocking GIF.
-        if (state_.transfer.active) { state_.finish_pending = true; }
+        if (state_.transfer.active && !state_.transfer.local_readback) { state_.finish_pending = true; }
         else { state_.finish_event = true; }
         break;
     case 0x7f: break;

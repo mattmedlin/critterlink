@@ -3,7 +3,8 @@
 FINISH A+D command0x61 requests a completion event for work already in progress.
 The current model exposes its latch through a narrow CSR/IMR interface and
 connects the active-low GS interrupt line to EE INTC source0. It does not implement
-SIGNAL/LABEL, display events, bus reversal or guest VRAM readback.
+SIGNAL/LABEL or display events. [Guest readback](gs-readback.md) now adds the
+separate BUSDIR/FDR and reverse-FIFO path.
 
 ## Sources and supported ports
 
@@ -67,7 +68,7 @@ replay of pending, masked and asserted states.
 
 The full GS privileged register window has additional address aliases and devices.
 SIGNAL/LABEL/SIGLBLID, reset/flush behavior, display interrupts, authentic silicon
-metadata and host-interface status remain unsupported. BUSDIR and reverse FIFO
-transport are needed for readback; a working FINISH acknowledgement alone does
-not implement them. Device scheduling still uses logical ticks, not physical GS
+metadata and host-interface status remain unsupported. The [readback profile](gs-readback.md) documents the separate BUSDIR and reverse
+FIFO implementation; a working FINISH acknowledgement alone is not pixel
+transport. Device scheduling still uses logical ticks, not physical GS
 clocks. #22 and milestone #4 remain open.

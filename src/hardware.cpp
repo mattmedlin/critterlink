@@ -159,6 +159,23 @@ std::uint64_t Hardware::read_gs(std::uint32_t address) const {
     return graphics_.read_privileged(address);
 }
 void Hardware::write_gs(std::uint32_t address, std::uint64_t value) {
+    if (address == 0x12001040u) {
+        require(value <= 1, "unsupported BUSDIR bits");
+        const bool reverse = value != 0;
+        if (reverse == gs_busdir_) return;
+        require((vif_dma_.chcr & 0x100u) == 0 && (dma_.chcr & 0x100u) == 0,
+                "BUSDIR requires idle DMA channels");
+        if (reverse) {
+            require(vif_fdr_ && gif_fifo_.count == 0 && graphics_.state().remaining == 0 &&
+                    !vif_dma_.loaded && vector_.state().payload == 0 && !vector_.busy() && (!graphics_.state().transfer.active || graphics_.has_readback()),
+                    "BUSDIR reversal requires an idle forward path and FDR");
+        } else {
+            require(graphics_.remaining_readback_qwords() == 0 && vif_readback_fifo_.count == 0,
+                    "BUSDIR cannot discard unfinished readback");
+        }
+        gs_busdir_ = reverse;
+        return;
+    }
     graphics_.write_privileged(address, value);
     sample_gs_interrupt();
 }
@@ -169,6 +186,7 @@ void Hardware::sample_gs_interrupt() noexcept {
 }
 
 std::uint32_t Hardware::read(std::uint32_t address) const {
+    if (address == 0x10003c00u) return (vif_fdr_ ? 0x800000u : 0u) | (std::uint32_t{vif_readback_fifo_.count} << 24u);
     if (Sif::ee_address(address)) { return sif_.ee_read32(address); }
     if (address >= timer_base && address < timer_base + 0x2000) {
         const auto index = (address - timer_base) / 0x800;
@@ -239,6 +257,16 @@ void Hardware::write(std::uint32_t address, std::uint32_t value) {
         }
     }
     switch (address) {
+    case 0x10003c00u: {
+        require((value & ~0x800000u) == 0, "unsupported VIF1_STAT control bits");
+        const bool fdr = (value & 0x800000u) != 0;
+        if (fdr == vif_fdr_) return;
+        require((vif_dma_.chcr & 0x100u) == 0 && (dma_.chcr & 0x100u) == 0 && vif_readback_fifo_.count == 0 &&
+                (!gs_busdir_ || graphics_.remaining_readback_qwords() == 0),
+                "FDR cannot change during an unfinished reverse transfer");
+        vif_fdr_ = fdr;
+        return;
+    }
     case gif_ctrl:
         require((value & ~9U) == 0, "unsupported GIF_CTRL bits");
         if ((value & 1U) != 0) {
@@ -282,9 +310,15 @@ void Hardware::write(std::uint32_t address, std::uint32_t value) {
         clear_vif_packet(vif_dma_);
         return;
     case d1_chcr: {
-        require(vif_chcr_supported(value), "unsupported VIF1 DMA direction, mode, priority, or stack depth");
+        require(value == 0x100u || vif_chcr_supported(value), "unsupported VIF1 DMA direction, mode, priority, or stack depth");
         require((vif_dma_.chcr & 0x100u) == 0 || value == 0,
                 "active VIF1 DMA may only be aborted, not restarted");
+        if (value == 0x100u) {
+            require(gs_busdir_ && vif_fdr_ && graphics_.has_readback() && vif_dma_.qwords != 0 &&
+                    (vif_dma_.qwords % 8u) == 0 && vif_dma_.qwords ==
+                    graphics_.remaining_readback_qwords() + vif_readback_fifo_.count,
+                    "reverse VIF1 DMA requires the exact remaining readback in eight-qword blocks");
+        } else { require((!gs_busdir_ && !vif_fdr_) || (value & 0x100u) == 0, "forward VIF1 DMA requires forward bus and FDR"); }
         auto next = vif_dma_;
         if (value == 0 || !source_chain_mode(value)) { clear_vif_packet(next); }
         else {
@@ -323,6 +357,7 @@ void Hardware::write(std::uint32_t address, std::uint32_t value) {
         clear_gif_packet(dma_);
         return;
     case d2_chcr: {
+        require(!gs_busdir_ || (value & 0x100u) == 0, "GIF DMA blocked by BUSDIR");
         require(gif_chcr_supported(value), "unsupported GIF DMA mode, tag transfer, priority, or stack depth");
         require((dma_.chcr & 0x100u) == 0 || value == 0,
                 "active GIF DMA may only be aborted, not restarted");
@@ -363,9 +398,33 @@ bool Hardware::enqueue_gif(std::array<std::uint32_t, 4> words) {
 bool Hardware::write_quadword(std::uint32_t address, std::array<std::uint32_t, 4> words) {
     require(address >= 0x10006000U && address < 0x10007000U && (address & 15U) == 0,
             "quadword MMIO writes support only GIF_FIFO");
+    require(!gs_busdir_, "GIF FIFO writes blocked by BUSDIR");
     return enqueue_gif(words);
 }
 
+std::array<std::uint32_t, 4> Hardware::pop_readback() {
+    const auto words = vif_readback_fifo_.words[vif_readback_fifo_.head];
+    vif_readback_fifo_.words[vif_readback_fifo_.head] = {};
+    vif_readback_fifo_.head = static_cast<std::uint8_t>((vif_readback_fifo_.head + 1u) % 16u);
+    --vif_readback_fifo_.count;
+    return words;
+}
+std::optional<std::array<std::uint32_t, 4>> Hardware::read_quadword(std::uint32_t address) {
+    require(address >= 0x10005000u && address < 0x10006000u && (address & 15u) == 0,
+            "quadword MMIO reads support only VIF1_FIFO");
+    require(!stop_ && gs_busdir_ && vif_fdr_ && graphics_.has_readback() && (vif_dma_.chcr & 0x100u) == 0,
+            "VIF1 FIFO is not available for CPU readback");
+    if (vif_readback_fifo_.count != 0) return pop_readback();
+    require(graphics_.remaining_readback_qwords() != 0, "VIF1 readback is exhausted");
+    return std::nullopt;
+}
+void Hardware::tick_readback() {
+    if (!gs_busdir_ || !vif_fdr_ || vif_readback_fifo_.count == 16 ||
+        graphics_.remaining_readback_qwords() == 0) return;
+    const auto tail = (unsigned{vif_readback_fifo_.head} + vif_readback_fifo_.count) % 16u;
+    vif_readback_fifo_.words[tail] = graphics_.produce_readback_qword();
+    ++vif_readback_fifo_.count;
+}
 void Hardware::tick_gif() {
     if (gif_fifo_.paused || gif_fifo_.count == 0) return;
     // Keep the offending qword and decoder intact on unsupported packet input.
@@ -441,7 +500,7 @@ void Hardware::tick_timers(bool external_clock) {
     }
 }
 
-void Hardware::tick_vif_dma(std::span<const std::uint8_t> ram) {
+void Hardware::tick_vif_dma(std::span<std::uint8_t> ram) {
     auto& channel = vif_dma_;
     if ((dma_.control & 1u) == 0 || (channel.chcr & 0x100u) == 0) { return; }
     const auto bus_error = [&](const char* reason) {
@@ -453,6 +512,20 @@ void Hardware::tick_vif_dma(std::span<const std::uint8_t> ram) {
     const auto in_ram = [&](std::uint32_t address) {
         return address <= ram.size() && ram.size() - address >= 16;
     };
+    if ((channel.chcr & 1u) == 0) {
+        if (!in_ram(channel.address)) {
+            bus_error("VIF1 reverse DMA destination outside RAM");
+            return;
+        }
+        if (vif_readback_fifo_.count == 0) return;
+        const auto words = pop_readback();
+        for (unsigned n = 0; n < 16; ++n) {
+            ram[channel.address + n] = static_cast<std::uint8_t>(words[n / 4] >> ((n % 4) * 8));
+        }
+        channel.address += 16;
+        if (--channel.qwords == 0) { channel.chcr &= ~0x100u; dma_.status |= 2u; }
+        return;
+    }
     const auto read_qword = [&](std::uint32_t address) {
         std::array<std::uint32_t, 4> words{};
         for (unsigned n = 0; n < 16; ++n) {
@@ -687,6 +760,7 @@ void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram, std::sp
         // DMAE and GIF pause gate input delivery, not an already active copy.
         if (!stop_) { graphics_.tick(); }
         sample_gs_interrupt();
+        if (!stop_) { tick_readback(); }
         if (!stop_) { tick_vif_dma(ram); }
         if (!stop_) { tick_dma(ram); }
         if (!stop_) { tick_gif(); }
@@ -700,7 +774,7 @@ void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram, std::sp
 }
 
 HardwareState Hardware::state() const {
-    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state(), sio2_.state(), cdvd_.state(), gif_fifo_, iop_intc_.state(), iop_timers_.state(), sbus_interrupt_high_, sbus_external_high_, iop_sbus_control_, ee_hblank_, ee_vblank_, gs_interrupt_high_};
+    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state(), sio2_.state(), cdvd_.state(), gif_fifo_, iop_intc_.state(), iop_timers_.state(), sbus_interrupt_high_, sbus_external_high_, iop_sbus_control_, ee_hblank_, ee_vblank_, gs_interrupt_high_, vif_readback_fifo_, vif_fdr_, gs_busdir_};
 }
 
 void Hardware::restore(const HardwareState& state) {
@@ -756,7 +830,7 @@ void Hardware::restore(const HardwareState& state) {
     default: throw std::invalid_argument("invalid GIF chain phase");
     }
     const auto& channel = state.vif_dma;
-    require(vif_chcr_supported(channel.chcr) && aligned_ram_address(channel.address) &&
+    require((channel.chcr == 0x100u || vif_chcr_supported(channel.chcr)) && aligned_ram_address(channel.address) &&
             aligned_ram_address(channel.tag_address) && aligned_ram_address(channel.asr[0]) &&
             aligned_ram_address(channel.asr[1]) && channel.qwords <= 0xffffu && channel.cursor < 4 &&
             (!channel.loaded || ((channel.chcr & 0x100u) != 0 && channel.qwords != 0)) &&
@@ -804,6 +878,32 @@ void Hardware::restore(const HardwareState& state) {
     replacement.graphics_.restore(state.graphics);
     require(state.gs_interrupt_high == !replacement.graphics_.irq(), "inconsistent GS interrupt-line snapshot");
     replacement.gs_interrupt_high_ = state.gs_interrupt_high;
+    const auto& reverse = state.vif_readback_fifo;
+    require(reverse.head < 16 && reverse.count <= 16, "invalid reverse FIFO bounds");
+    for (unsigned i = reverse.count; i < 16; ++i) {
+        require(reverse.words[(unsigned{reverse.head} + i) % 16u] == std::array<std::uint32_t, 4>{},
+                "invalid unused reverse FIFO slot");
+    }
+    const auto remaining = replacement.graphics_.remaining_readback_qwords();
+    require(remaining == 0 || state.graphics.transfer.cursor == 0 || state.gs_busdir,
+            "partially produced readback requires reverse bus");
+    require(reverse.count == 0 || reverse.count <= state.graphics.transfer.cursor / 4u,
+            "reverse FIFO exceeds produced source words");
+    require(reverse.count == 0 || (state.gs_busdir && state.vif_fdr && replacement.graphics_.has_readback()),
+            "reverse FIFO requires an active reverse bus");
+    if (state.gs_busdir) {
+        require(state.gif_fifo.count == 0 && state.graphics.remaining == 0 && (gif.chcr & 0x100u) == 0 &&
+                !channel.loaded && state.vector.payload == 0 && !state.vector.running && (!state.graphics.transfer.active || replacement.graphics_.has_readback()) &&
+                (state.vif_fdr || (remaining == 0 && reverse.count == 0)), "invalid reverse bus snapshot");
+    }
+    if (channel.chcr == 0x100u) {
+        require(state.gs_busdir && state.vif_fdr && replacement.graphics_.has_readback() &&
+                channel.qwords != 0 && channel.qwords == remaining + reverse.count && !channel.loaded,
+                "invalid reverse DMA snapshot");
+    } else { require((!state.gs_busdir && !state.vif_fdr) || (channel.chcr & 0x100u) == 0, "forward DMA requires forward bus and FDR"); }
+    replacement.vif_readback_fifo_ = reverse;
+    replacement.vif_fdr_ = state.vif_fdr;
+    replacement.gs_busdir_ = state.gs_busdir;
     require(state.gif_fifo.head < 16 && state.gif_fifo.count <= 16, "invalid GIF FIFO snapshot bounds");
     for (unsigned i = state.gif_fifo.count; i < 16; ++i) {
         const auto slot = (unsigned{state.gif_fifo.head} + i) % 16U;

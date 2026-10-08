@@ -208,11 +208,12 @@ void transport_latching_and_replay() {
 void rejected_configuration() {
     auto g = std::make_unique<Graphics>();
     setup(*g, 4, 1);
+    // Readback/copy lack a configured source buffer here; direction4 is reserved.
     for (unsigned direction : {1U, 2U, 4U}) {
         packed(*g, 1);
         const auto before = snap(*g);
         rejects([&] { reg(*g, 0x53, direction); });
-        check(g->state() == *before, "unsupported direction changed active upload");
+        check(g->state() == *before, "invalid transfer start changed active upload");
         reg(*g, 0x7f, 0);
     }
     // Restrictions are this implementation's supported profile, not hardware wrap claims.

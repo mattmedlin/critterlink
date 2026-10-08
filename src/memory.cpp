@@ -75,6 +75,22 @@ void Memory::write_partial(std::uint32_t address, unsigned count, std::uint64_t 
     for (unsigned i = 0; i < count; ++i) ram_[region.offset + i] = static_cast<std::uint8_t>(value >> (i * 8));
 }
 
+std::array<std::uint64_t, 2> Memory::read_quadword(std::uint32_t address) {
+    if ((address & 15u) != 0) throw MemoryFault(MemoryError::alignment, Access::load, address);
+    const auto physical = address >= 0x80000000u && address < 0xc0000000u ? address & 0x1fffffffu : address;
+    if (physical >= 0x10000000u && physical < 0x10010000u) {
+        try {
+            const auto words = hardware_.read_quadword(physical);
+            if (!words) throw MemoryStall("VIF1 readback FIFO is empty; retry after device progress");
+            return {std::uint64_t{(*words)[0]} | (std::uint64_t{(*words)[1]} << 32u),
+                    std::uint64_t{(*words)[2]} | (std::uint64_t{(*words)[3]} << 32u)};
+        } catch (const std::invalid_argument& error) {
+            throw MemoryFault(MemoryError::device, Access::load, address, error.what());
+        }
+    }
+    return static_cast<const Memory&>(*this).read_quadword(address);
+}
+
 std::array<std::uint64_t, 2> Memory::read_quadword(std::uint32_t address) const {
     const auto region = resolve(address, 16, Access::load);
     std::array<std::uint64_t, 2> value{};

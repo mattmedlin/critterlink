@@ -10,7 +10,7 @@ struct GraphicsTransferState {
     bool active{};
     std::uint32_t source_base{}, source_width{}, source_x{}, source_y{};
     std::uint8_t direction{};
-    bool local_copy{};
+    bool local_copy{}, local_readback{};
     bool operator==(const GraphicsTransferState&) const = default;
 };
 // Fixed 64x64 diagnostic view backed by real PSMCT32 GS local memory.
@@ -36,6 +36,9 @@ class Graphics {
 public:
     // One pixel of an active local copy per diagnostic logical tick.
     void tick();
+    bool has_readback() const noexcept { return state_.transfer.local_readback; }
+    std::uint32_t remaining_readback_qwords() const noexcept;
+    std::array<std::uint32_t, 4> produce_readback_qword();
     std::uint64_t read_privileged(std::uint32_t address) const;
     void write_privileged(std::uint32_t address, std::uint64_t value);
     bool irq() const noexcept { return state_.finish_event && (state_.imr & 0x200u) == 0; }

@@ -55,6 +55,11 @@ struct GifFifoState {
     bool paused{};
     bool operator==(const GifFifoState&) const = default;
 };
+struct VifReadbackFifoState {
+    std::array<std::array<std::uint32_t, 4>, 16> words{};
+    std::uint8_t head{}, count{};
+    bool operator==(const VifReadbackFifoState&) const = default;
+};
 struct HardwareState {
     SchedulerState scheduler;
     std::array<TimerState, 4> timers{};
@@ -77,6 +82,8 @@ struct HardwareState {
     std::uint32_t iop_sbus_control{};
     bool ee_hblank{}, ee_vblank{};
     bool gs_interrupt_high{true};
+    VifReadbackFifoState vif_readback_fifo;
+    bool vif_fdr{}, gs_busdir{};
     bool operator==(const HardwareState&) const = default;
 };
 
@@ -91,6 +98,8 @@ public:
     void write_gs(std::uint32_t address, std::uint64_t value);
     // False means backpressure: no part of the qword was accepted.
     bool write_quadword(std::uint32_t physical_address, std::array<std::uint32_t, 4> words);
+    // Empty optional means the supported readback is still producing data.
+    std::optional<std::array<std::uint32_t, 4>> read_quadword(std::uint32_t physical_address);
     void advance(std::uint64_t ticks, std::span<std::uint8_t> ram, std::span<const std::uint8_t> boot_rom = {});
     // Explicit video-clock inputs; current GS diagnostic does not generate them.
     void advance_iop_pixel_clock(std::uint64_t ticks);
@@ -126,7 +135,9 @@ private:
     void sample_sbus_interrupt() noexcept;
     void sample_gs_interrupt() noexcept;
     void tick_timers(bool external_clock = false);
-    void tick_vif_dma(std::span<const std::uint8_t> ram);
+    void tick_vif_dma(std::span<std::uint8_t> ram);
+    void tick_readback();
+    std::array<std::uint32_t, 4> pop_readback();
     void tick_dma(std::span<const std::uint8_t> ram);
     void tick_gif();
     bool enqueue_gif(std::array<std::uint32_t, 4> words);
@@ -149,6 +160,8 @@ private:
     Sio2 sio2_;
     Cdvd cdvd_;
     GifFifoState gif_fifo_;
+    VifReadbackFifoState vif_readback_fifo_;
+    bool vif_fdr_{}, gs_busdir_{};
     std::optional<std::string> stop_;
 };
 
