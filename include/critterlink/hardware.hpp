@@ -111,6 +111,7 @@ struct HardwareState {
     bool path3_masked{};
     VifTransportState vif_transport;
     VifInputFifoState vif_input_fifo;
+    bool gif_path3_masked{};
     bool operator==(const HardwareState&) const = default;
 };
 
@@ -197,6 +198,7 @@ private:
     bool path3_masked_{};
     VifTransportState vif_transport_;
     VifInputFifoState vif_input_fifo_;
+    bool gif_path3_masked_{};
     std::optional<std::string> stop_;
 };
 

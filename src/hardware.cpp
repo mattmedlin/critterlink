@@ -14,7 +14,7 @@ constexpr std::uint32_t d1_tadr = 0x10009030, d1_asr0 = 0x10009040, d1_asr1 = 0x
 constexpr std::uint32_t d2_chcr = 0x1000a000, d2_madr = 0x1000a010, d2_qwc = 0x1000a020;
 constexpr std::uint32_t d2_tadr = 0x1000a030, d2_asr0 = 0x1000a040, d2_asr1 = 0x1000a050;
 constexpr std::uint32_t d_ctrl = 0x1000e000, d_stat = 0x1000e010;
-constexpr std::uint32_t gif_ctrl = 0x10003000, gif_stat = 0x10003020;
+constexpr std::uint32_t gif_ctrl = 0x10003000, gif_mode = 0x10003010, gif_stat = 0x10003020;
 constexpr std::uint32_t dma_supported_status = 0x00668066; // channels 1/2/5/6 flags/masks and bus error
 bool source_chain_mode(std::uint32_t chcr) { return (chcr & 0xcu) == 4u; }
 // TIE applies to chain-tag IRQ and TTE to source-chain tag transport;
@@ -217,7 +217,7 @@ std::uint32_t Hardware::read(std::uint32_t address) const {
     switch (address) {
     case gif_stat: {
         return (std::uint32_t{gif_fifo_.count} << 24U) | (gif_fifo_.paused ? 8U : 0U) |
-               (path3_masked_ ? 2u : 0u) | (gif_fifo_.count != 0 && gif_owner_ != 3 ? 0x40U : 0U) |
+               (gif_path3_masked_ ? 1u : 0u) | (path3_masked_ ? 2u : 0u) | (gif_fifo_.count != 0 && gif_owner_ != 3 ? 0x40U : 0U) |
                (gif_path2_fifo_.count != 0 && gif_owner_ != 2 ? 0x80u : 0u) |
                (std::uint32_t{gif_owner_} << 10u) | (gif_owner_ != 0 ? 0x200u : 0u) |
                (gs_busdir_ ? 0x1000u : 0u);
@@ -282,12 +282,18 @@ void Hardware::write(std::uint32_t address, std::uint32_t value) {
         vif_fdr_ = fdr;
         return;
     }
+    case gif_mode:
+        // Strict supported-input profile: intermittent transfer mode is absent.
+        require((value & ~1u) == 0, "unsupported GIF_MODE bits");
+        gif_path3_masked_ = (value & 1u) != 0;
+        return;
     case gif_ctrl:
         require((value & ~9U) == 0, "unsupported GIF_CTRL bits");
         if ((value & 1U) != 0) {
             gif_fifo_ = {};
             gif_path2_fifo_ = {};
             gif_owner_ = 0;
+            gif_path3_masked_ = false;
             auto graphics = graphics_.state();
             graphics.remaining = 0; // GIF reset retains GS and VIF command state.
             graphics.gif_eop = false;
@@ -453,7 +459,7 @@ void Hardware::tick_gif() {
     auto owner = gif_owner_;
     if (owner == 0) {
         if (gif_path2_fifo_.count != 0) owner = 2;
-        else if (!path3_masked_ && gif_fifo_.count != 0) owner = 3;
+        else if (!path3_masked_ && !gif_path3_masked_ && gif_fifo_.count != 0) owner = 3;
         else return;
     }
     auto& fifo = owner == 2 ? gif_path2_fifo_ : gif_fifo_;
@@ -853,7 +859,7 @@ void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram, std::sp
 }
 
 HardwareState Hardware::state() const {
-    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state(), sio2_.state(), cdvd_.state(), gif_fifo_, iop_intc_.state(), iop_timers_.state(), sbus_interrupt_high_, sbus_external_high_, iop_sbus_control_, ee_hblank_, ee_vblank_, gs_interrupt_high_, vif_readback_fifo_, vif_fdr_, gs_busdir_, gif_path2_fifo_, gif_owner_, path3_masked_, vif_transport_, vif_input_fifo_};
+    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state(), sio2_.state(), cdvd_.state(), gif_fifo_, iop_intc_.state(), iop_timers_.state(), sbus_interrupt_high_, sbus_external_high_, iop_sbus_control_, ee_hblank_, ee_vblank_, gs_interrupt_high_, vif_readback_fifo_, vif_fdr_, gs_busdir_, gif_path2_fifo_, gif_owner_, path3_masked_, vif_transport_, vif_input_fifo_, gif_path3_masked_};
 }
 
 void Hardware::restore(const HardwareState& state) {
@@ -1028,6 +1034,7 @@ void Hardware::restore(const HardwareState& state) {
     }
     require(transport.wait == VifWait::none || input.count != 0, "VIF wait requires an input head");
     replacement.vif_input_fifo_ = input;
+    replacement.gif_path3_masked_ = state.gif_path3_masked;
     replacement.gif_path2_fifo_ = state.gif_path2_fifo;
     replacement.gif_owner_ = state.gif_owner;
     replacement.path3_masked_ = state.path3_masked;

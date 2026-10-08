@@ -62,7 +62,8 @@ MSKPATH3 prevents future arbitration to PATH3 without discarding queued data or
 interrupting its current packet. PATH2 remains eligible. FLUSHA can consequently
 wait indefinitely if software masks already queued PATH3 work and never unmasks
 it. Device advancement stays bounded; waiting does not spin inside one host call.
-GIF_MODE.M3R and intermittent IMAGE mode are not implemented. DIRECTHL therefore
+[GIF_MODE.M3R](gif-mode.md) provides an independent PATH3 mask. Intermittent
+IMAGE mode is not implemented. DIRECTHL therefore
 has no distinct preemption behavior in this supported continuous-mode profile.
 
 Each delivery stages GS decoding before removing the queue entry or changing
@@ -74,7 +75,7 @@ also remains owned by VIF. GIF pause stops delivery from both paths.
 
 ## Status, readback and snapshots
 
-GIF_STAT exposes VIF mask M3P at bit1, pause PSE at bit3, waiting PATH3/PATH2
+GIF_STAT exposes GIF mask M3R at bit0, VIF mask M3P at bit1, pause PSE at bit3, waiting PATH3/PATH2
 requests at bits6/7, modeled output-active OPH at bit9, APATH at bits11:10,
 BUSDIR-derived DIR at bit12, and PATH3 queue count FQC at bits28:24. APATH is 0,
 2 or 3. Queue request bits identify nonempty paths other than the active owner.
@@ -95,7 +96,7 @@ owner consistency, assembly bounds and retained waits before replacing state.
 
 ## Remaining gaps
 
-PATH1/XGKICK, GIF_MODE masks, intermittent IMAGE
+PATH1/XGKICK, intermittent IMAGE
 arbitration, VIF interrupts and the full VIF register/command set remain
 unsupported. Existing GS packet and pixel-format restrictions still apply.
 Original guests cover SDK-style DMA setup and CPU unmask after readback. Full

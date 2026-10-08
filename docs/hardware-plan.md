@@ -128,6 +128,7 @@ error. Instructions cannot be fetched from MMIO.
 | SIF0/1 channels at `0x1000c000` / `0x1000c400` | Normal EE receive/send endpoints; see [sif.md](sif.md) |
 | D1_CHCR `0x10009000`, MADR +0x10, QWC +0x20 | Normal and RAM source-chain VIF1 DMA with upper64 tag transport and partial-word stalls; [contract](vif-dma-chain.md) |
 | D2_CHCR `0x1000a000` | Normal and RAM source-chain GIF DMA, TAG/ASP/TIE; active restart or reprogramming rejected; [chain contract](gif-dma-chain.md) |
+| GIF_MODE `0x10003010` | Independent PATH3 register mask; [contract](gif-mode.md) |
 | GIF_CTRL `0x10003000`, GIF_STAT `0x10003020` | Queue reset/pause and modelled path status; see [GIF FIFO](gif-fifo.md) |
 | GIF_FIFO `0x10006000–0x10006ff0` | Shared 16-qword CPU/DMA queue; 128-bit stores only, full queue stalls |
 | D2_MADR `0x1000a010`, D2_QWC `0x1000a020` | Qword-aligned physical RAM source and 16-bit count; advance at most one qword per logical tick |

@@ -45,7 +45,7 @@ cancel active DMA or clear an unrelated hardware stop. Other CTRL bits reject.
 `GIF_STAT` at `0x10003020` exposes PATH3 occupancy in FQC (bits28:24),
 PSE, waiting PATH3/PATH2 requests, retained packet ownership in APATH/OPH,
 VIF's PATH3 mask and BUSDIR direction. See the [DIRECT contract](vif-direct.md)
-for exact fields and packet arbitration. GIF_MODE masks/intermittent mode and
+for exact fields and packet arbitration. [GIF_MODE.M3R](gif-mode.md) adds an independent PATH3 mask; intermittent mode and
 diagnostic count/tag registers remain unsupported. Reverse GS pixel transport
 uses the separate [VIF1 readback path](gs-readback.md).
 
