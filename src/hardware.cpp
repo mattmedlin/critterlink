@@ -10,19 +10,20 @@ namespace {
 constexpr std::uint32_t timer_base = 0x10000000;
 constexpr std::uint32_t intc_stat = 0x1000f000, intc_mask = 0x1000f010;
 constexpr std::uint32_t d1_chcr = 0x10009000, d1_madr = 0x10009010, d1_qwc = 0x10009020;
+constexpr std::uint32_t d1_tadr = 0x10009030, d1_asr0 = 0x10009040, d1_asr1 = 0x10009050;
 constexpr std::uint32_t d2_chcr = 0x1000a000, d2_madr = 0x1000a010, d2_qwc = 0x1000a020;
 constexpr std::uint32_t d2_tadr = 0x1000a030, d2_asr0 = 0x1000a040, d2_asr1 = 0x1000a050;
 constexpr std::uint32_t d_ctrl = 0x1000e000, d_stat = 0x1000e010;
 constexpr std::uint32_t gif_ctrl = 0x10003000, gif_stat = 0x10003020;
 constexpr std::uint32_t dma_supported_status = 0x00668066; // channels 1/2/5/6 flags/masks and bus error
-bool gif_chain(std::uint32_t chcr) { return (chcr & 0xcu) == 4u; }
+bool source_chain_mode(std::uint32_t chcr) { return (chcr & 0xcu) == 4u; }
 bool gif_chcr_supported(std::uint32_t chcr) {
-    if (!gif_chain(chcr)) {
+    if (!source_chain_mode(chcr)) {
         return (chcr & ~0x101u) == 0 && ((chcr & 0x100u) == 0 || (chcr & 1u) != 0);
     }
     return (chcr & ~0xf00001b5u) == 0 && (chcr & 1u) != 0 && ((chcr >> 4u) & 3u) <= 2;
 }
-bool gif_ram_address(std::uint32_t address) { return (address & 0x8000000fu) == 0; }
+bool aligned_ram_address(std::uint32_t address) { return (address & 0x8000000fu) == 0; }
 void clear_gif_packet(GifDmaState& channel, GifChainPhase phase = GifChainPhase::idle) {
     channel.phase = phase;
     channel.next_tag = 0;
@@ -38,6 +39,28 @@ void finish_gif_packet(GifDmaState& channel) {
         channel.chcr &= ~0x100u;
         channel.status |= 4u;
     }
+}
+bool vif_chcr_supported(std::uint32_t chcr) {
+    return source_chain_mode(chcr) ? gif_chcr_supported(chcr & ~0x40u) : gif_chcr_supported(chcr);
+}
+void clear_vif_packet(VifDmaState& channel, VifChainPhase phase = VifChainPhase::idle) {
+    channel.phase = phase;
+    channel.next_tag = 0;
+    channel.packet_end = false;
+    channel.packet_irq = false;
+    channel.tag_words = {};
+    channel.tag_cursor = 0;
+    channel.pending = {};
+    channel.loaded = false;
+    channel.cursor = 0;
+}
+bool finish_vif_packet(VifDmaState& channel) {
+    channel.tag_address = channel.next_tag;
+    const bool end = channel.packet_end;
+    const bool interrupt = (channel.chcr & 0x80u) != 0 && channel.packet_irq;
+    clear_vif_packet(channel, end ? VifChainPhase::idle : VifChainPhase::tag);
+    if (end || interrupt) { channel.chcr &= ~0x100u; return true; }
+    return false;
 }
 unsigned divisor(std::uint16_t mode) {
     constexpr std::array<unsigned, 4> divisors{1, 16, 256, 1};
@@ -160,6 +183,9 @@ std::uint32_t Hardware::read(std::uint32_t address) const {
     case d1_chcr: return vif_dma_.chcr;
     case d1_madr: return vif_dma_.address;
     case d1_qwc: return vif_dma_.qwords;
+    case d1_tadr: return vif_dma_.tag_address;
+    case d1_asr0: return vif_dma_.asr[0];
+    case d1_asr1: return vif_dma_.asr[1];
     case d2_chcr: return dma_.chcr;
     case d2_madr: return dma_.address;
     case d2_qwc: return dma_.qwords;
@@ -227,28 +253,52 @@ void Hardware::write(std::uint32_t address, std::uint32_t value) {
         dma_.status = (dma_.status & ~(value & 0xffffu)) ^ (value & 0xffff0000u);
         return;
     case d1_madr:
+    case d1_tadr:
+    case d1_asr0:
+    case d1_asr1:
         require((vif_dma_.chcr & 0x100u) == 0, "cannot change an active VIF1 DMA address");
-        require((value & 0x8000000fu) == 0, "VIF1 DMA needs aligned RAM address; scratchpad unsupported");
-        vif_dma_.address = value;
+        require(aligned_ram_address(value), "VIF1 DMA requires qword-aligned RAM; scratchpad unsupported");
+        if (address == d1_madr) { vif_dma_.address = value; }
+        else if (address == d1_tadr) { vif_dma_.tag_address = value; }
+        else { vif_dma_.asr[address == d1_asr0 ? 0 : 1] = value; }
+        clear_vif_packet(vif_dma_);
         return;
     case d1_qwc:
         require((vif_dma_.chcr & 0x100u) == 0 && value <= 0xffffu, "invalid or active VIF1 DMA count");
         vif_dma_.qwords = value;
+        clear_vif_packet(vif_dma_);
         return;
-    case d1_chcr:
-        require((value & ~0x101u) == 0 && ((value & 0x100u) == 0 || (value & 1u) != 0),
-                "VIF1 DMA supports only normal RAM-to-VIF1 transfers");
-        require((vif_dma_.chcr & 0x100u) == 0 || value == 0, "active VIF1 DMA may only be stopped");
-        require(!vif_dma_.loaded || value == 0, "cannot restart partially consumed VIF1 DMA");
-        vif_dma_.chcr = value;
-        if (value == 0) { vif_dma_.loaded = false; vif_dma_.cursor = 0; vif_dma_.pending = {}; }
+    case d1_chcr: {
+        require(vif_chcr_supported(value), "unsupported VIF1 DMA direction, mode, priority, or stack depth");
+        require((vif_dma_.chcr & 0x100u) == 0 || value == 0,
+                "active VIF1 DMA may only be aborted, not restarted");
+        auto next = vif_dma_;
+        if (value == 0 || !source_chain_mode(value)) { clear_vif_packet(next); }
+        else {
+            const bool resume = next.phase == VifChainPhase::tag && next.qwords == 0 &&
+                (value & 0xf0000075u) == (next.chcr & 0xf0000075u);
+            if (!resume) {
+                clear_vif_packet(next);
+                if ((value & 0x100u) != 0) {
+                    const auto tag = value & 0xffff0000u;
+                    const bool fresh = next.qwords == 0 && (tag == 0 || tag == 0x10000000u);
+                    const bool preload = next.qwords != 0 && tag == 0x10000000u;
+                    require(fresh || preload, "unsupported VIF1 source-chain launch or restart state");
+                    next.phase = fresh ? VifChainPhase::tag : VifChainPhase::payload;
+                    if (preload) { next.next_tag = next.tag_address; }
+                }
+            }
+        }
+        next.chcr = value;
+        vif_dma_ = next;
         return;
+    }
     case d2_madr:
     case d2_tadr:
     case d2_asr0:
     case d2_asr1:
         require((dma_.chcr & 0x100u) == 0, "cannot change an active GIF DMA address");
-        require(gif_ram_address(value), "GIF DMA requires qword-aligned RAM; scratchpad unsupported");
+        require(aligned_ram_address(value), "GIF DMA requires qword-aligned RAM; scratchpad unsupported");
         if (address == d2_madr) { dma_.address = value; }
         else if (address == d2_tadr) { dma_.tag_address = value; }
         else { dma_.asr[address == d2_asr0 ? 0 : 1] = value; }
@@ -265,7 +315,7 @@ void Hardware::write(std::uint32_t address, std::uint32_t value) {
                 "active GIF DMA may only be aborted, not restarted");
         auto next = dma_;
         // Explicit model abort: retained registers survive, decoded packet does not.
-        if (value == 0 || !gif_chain(value)) { clear_gif_packet(next); }
+        if (value == 0 || !source_chain_mode(value)) { clear_gif_packet(next); }
         else {
             const bool resume = next.phase == GifChainPhase::tag && next.qwords == 0 &&
                 (value & 0xf0000035u) == (next.chcr & 0xf0000035u);
@@ -381,27 +431,100 @@ void Hardware::tick_timers(bool external_clock) {
 void Hardware::tick_vif_dma(std::span<const std::uint8_t> ram) {
     auto& channel = vif_dma_;
     if ((dma_.control & 1u) == 0 || (channel.chcr & 0x100u) == 0) { return; }
+    const auto bus_error = [&](const char* reason) {
+        channel.chcr &= ~0x100u;
+        dma_.status |= 0x8002u;
+        clear_vif_packet(channel);
+        stop_ = reason;
+    };
+    const auto in_ram = [&](std::uint32_t address) {
+        return address <= ram.size() && ram.size() - address >= 16;
+    };
+    const auto read_qword = [&](std::uint32_t address) {
+        std::array<std::uint32_t, 4> words{};
+        for (unsigned n = 0; n < 16; ++n) {
+            words[n / 4] |= std::uint32_t{ram[address + n]} << ((n % 4) * 8);
+        }
+        return words;
+    };
+    const auto finish_packet = [&] {
+        if (finish_vif_packet(channel)) { dma_.status |= 2u; }
+    };
+    if (source_chain_mode(channel.chcr) && channel.phase == VifChainPhase::tag) {
+        if (!in_ram(channel.tag_address)) {
+            bus_error("VIF1 DMA tag outside RAM; transfer stopped with bus-error status");
+            return;
+        }
+        const auto raw = read_qword(channel.tag_address);
+        SourceChainPacket packet;
+        try {
+            packet = decode_source_chain(channel.tag_address, raw,
+                                         {channel.asr, (channel.chcr >> 4u) & 3u});
+        } catch (const std::invalid_argument& error) {
+            stop_ = std::string("VIF1 DMA source tag: ") + error.what();
+            return;
+        }
+        channel.chcr = (channel.chcr & 0x0000ffcfu) |
+                       (std::uint32_t{packet.tag} << 16u) | (packet.stack.depth << 4u);
+        channel.asr = packet.stack.addresses;
+        channel.qwords = packet.qwords;
+        if (packet.stack_overflow) {
+            // Functional priority: overflow precedes TTE transport and tag IRQ.
+            channel.chcr &= ~0x100u;
+            dma_.status |= 2u;
+            clear_vif_packet(channel);
+            return;
+        }
+        channel.address = packet.address;
+        channel.next_tag = packet.next_tag;
+        channel.packet_end = packet.end;
+        channel.packet_irq = (packet.tag & 0x8000u) != 0;
+        if ((channel.chcr & 0x40u) != 0) {
+            channel.tag_words = {raw[2], raw[3]};
+            channel.tag_cursor = 0;
+            channel.phase = VifChainPhase::tag_words;
+        } else {
+            channel.phase = VifChainPhase::payload;
+            if (channel.qwords == 0) { finish_packet(); }
+        }
+        return;
+    }
+    // Physical word indices preserve MPG's 64-bit payload alignment even when
+    // the command is transported in the upper half of a DMAtag.
+    const auto submit = [&](std::uint32_t word, unsigned physical_word) {
+        require(vector_.state().payload != 0 || (word >> 24u) != 0x4au ||
+                (physical_word & 1u) != 0, "VIF1 MPG payload requires 64-bit alignment");
+        return vector_.submit_word(word);
+    };
+    if (channel.phase == VifChainPhase::tag_words) {
+        try {
+            while (channel.tag_cursor < 2) {
+                if (!submit(channel.tag_words[channel.tag_cursor], 2 + channel.tag_cursor)) { return; }
+                ++channel.tag_cursor;
+            }
+        } catch (const std::invalid_argument& error) {
+            stop_ = std::string("VIF1 at DMA tag address ") + std::to_string(channel.tag_address) + ": " + error.what();
+            return;
+        }
+        channel.tag_words = {};
+        channel.tag_cursor = 0;
+        channel.phase = VifChainPhase::payload;
+        if (channel.qwords == 0) { finish_packet(); }
+        return;
+    }
     if (channel.qwords != 0) {
         if (!channel.loaded) {
-            if (channel.address > ram.size() || ram.size() - channel.address < 16) {
-                channel.chcr &= ~0x100u;
-                dma_.status |= 0x8002u;
-                stop_ = "VIF1 DMA source outside RAM; transfer stopped with bus-error status";
+            if (!in_ram(channel.address)) {
+                bus_error("VIF1 DMA source outside RAM; transfer stopped with bus-error status");
                 return;
             }
-            channel.pending = {};
-            for (unsigned n = 0; n < 16; ++n) {
-                channel.pending[n / 4] |= std::uint32_t{ram[channel.address + n]} << ((n % 4) * 8);
-            }
+            channel.pending = read_qword(channel.address);
             channel.loaded = true;
             channel.cursor = 0;
         }
         try {
             while (channel.cursor < 4) {
-                const auto word = channel.pending[channel.cursor];
-                require(vector_.state().payload != 0 || (word >> 24u) != 0x4au ||
-                        (channel.cursor & 1u) != 0, "VIF1 MPG payload requires 64-bit alignment");
-                if (!vector_.submit_word(word)) { return; }
+                if (!submit(channel.pending[channel.cursor], channel.cursor)) { return; }
                 ++channel.cursor;
             }
         } catch (const std::invalid_argument& error) {
@@ -415,8 +538,8 @@ void Hardware::tick_vif_dma(std::span<const std::uint8_t> ram) {
         channel.pending = {};
     }
     if (channel.qwords == 0) {
-        channel.chcr &= ~0x100u;
-        dma_.status |= 2u;
+        if (source_chain_mode(channel.chcr)) { finish_packet(); }
+        else { channel.chcr &= ~0x100u; dma_.status |= 2u; }
     }
 }
 
@@ -438,7 +561,7 @@ void Hardware::tick_dma(std::span<const std::uint8_t> ram) {
         }
         return words;
     };
-    if (gif_chain(dma_.chcr) && dma_.phase == GifChainPhase::tag) {
+    if (source_chain_mode(dma_.chcr) && dma_.phase == GifChainPhase::tag) {
         if (!in_ram(dma_.tag_address)) {
             bus_error("GIF DMA tag outside RAM; transfer stopped with bus-error status");
             return;
@@ -483,7 +606,7 @@ void Hardware::tick_dma(std::span<const std::uint8_t> ram) {
         --dma_.qwords;
     }
     if (dma_.qwords == 0) {
-        if (gif_chain(dma_.chcr)) { finish_gif_packet(dma_); }
+        if (source_chain_mode(dma_.chcr)) { finish_gif_packet(dma_); }
         else { dma_.chcr &= ~0x100u; dma_.status |= 4u; }
     }
 }
@@ -586,24 +709,26 @@ void Hardware::restore(const HardwareState& state) {
             "invalid INTC snapshot");
     const auto& gif = state.dma;
     require((gif.control & ~1u) == 0 && (gif.status & ~dma_supported_status) == 0 &&
-            gif_chcr_supported(gif.chcr) && gif_ram_address(gif.address) && gif.qwords <= 0xffffu &&
-            gif_ram_address(gif.tag_address) && gif_ram_address(gif.asr[0]) && gif_ram_address(gif.asr[1]),
+            gif_chcr_supported(gif.chcr) && aligned_ram_address(gif.address) && gif.qwords <= 0xffffu &&
+            aligned_ram_address(gif.tag_address) && aligned_ram_address(gif.asr[0]) && aligned_ram_address(gif.asr[1]),
             "invalid DMA snapshot");
     const bool metadata_clear = gif.next_tag == 0 && !gif.packet_end && !gif.packet_irq;
     switch (gif.phase) {
     case GifChainPhase::idle:
-        require(metadata_clear && (!gif_chain(gif.chcr) || (gif.chcr & 0x100u) == 0),
+        require(metadata_clear && (!source_chain_mode(gif.chcr) || (gif.chcr & 0x100u) == 0),
                 "invalid idle GIF chain snapshot");
         break;
     case GifChainPhase::tag:
-        require(gif_chain(gif.chcr) && gif.qwords == 0 && metadata_clear &&
-                ((gif.chcr & 0x100u) != 0 || (gif.chcr & 0x80000000u) != 0),
+        require(source_chain_mode(gif.chcr) && gif.qwords == 0 && metadata_clear &&
+                ((gif.chcr >> 28u) & 7u) != 7 &&
+                ((gif.chcr & 0x100u) != 0 ||
+                 ((gif.chcr & 0x80000000u) != 0 && ((gif.chcr >> 28u) & 7u) != 0)),
                 "invalid GIF tag-fetch snapshot");
         break;
     case GifChainPhase::payload: {
         const auto id = (gif.chcr >> 28u) & 7u;
-        require(gif_chain(gif.chcr) && (gif.chcr & 0x100u) != 0 && gif.qwords != 0 &&
-                gif_ram_address(gif.next_tag) && gif.packet_irq == ((gif.chcr & 0x80000000u) != 0) &&
+        require(source_chain_mode(gif.chcr) && (gif.chcr & 0x100u) != 0 && gif.qwords != 0 &&
+                aligned_ram_address(gif.next_tag) && gif.packet_irq == ((gif.chcr & 0x80000000u) != 0) &&
                 ((id == 0 || id == 7) ? gif.packet_end : (id == 6 || !gif.packet_end)) &&
                 (!(id == 6 && gif.packet_end) || (gif.chcr & 0x30u) == 0),
                 "invalid GIF packet snapshot");
@@ -612,11 +737,42 @@ void Hardware::restore(const HardwareState& state) {
     default: throw std::invalid_argument("invalid GIF chain phase");
     }
     const auto& channel = state.vif_dma;
-    require((channel.chcr & ~0x101u) == 0 && (channel.address & 0x8000000fu) == 0 &&
-            channel.qwords <= 0xffffu && ((channel.chcr & 0x100u) == 0 || (channel.chcr & 1u) != 0) &&
-            channel.cursor < 4 && (!channel.loaded || ((channel.chcr & 0x100u) != 0 && channel.qwords != 0)) &&
+    require(vif_chcr_supported(channel.chcr) && aligned_ram_address(channel.address) &&
+            aligned_ram_address(channel.tag_address) && aligned_ram_address(channel.asr[0]) &&
+            aligned_ram_address(channel.asr[1]) && channel.qwords <= 0xffffu && channel.cursor < 4 &&
+            (!channel.loaded || ((channel.chcr & 0x100u) != 0 && channel.qwords != 0)) &&
             (channel.loaded || (channel.cursor == 0 && channel.pending == std::array<std::uint32_t, 4>{})),
             "invalid VIF1 DMA snapshot");
+    const bool vif_metadata_clear = channel.next_tag == 0 && !channel.packet_end && !channel.packet_irq;
+    const bool vif_tags_clear = channel.tag_cursor == 0 && channel.tag_words == std::array<std::uint32_t, 2>{};
+    switch (channel.phase) {
+    case VifChainPhase::idle:
+        require(vif_metadata_clear && vif_tags_clear &&
+                (!source_chain_mode(channel.chcr) || (channel.chcr & 0x100u) == 0), "invalid idle VIF1 chain snapshot");
+        break;
+    case VifChainPhase::tag:
+        require(source_chain_mode(channel.chcr) && channel.qwords == 0 && vif_metadata_clear && vif_tags_clear &&
+                !channel.loaded && ((channel.chcr >> 28u) & 7u) != 7 &&
+                ((channel.chcr & 0x100u) != 0 ||
+                 ((channel.chcr & 0x80000000u) != 0 && ((channel.chcr >> 28u) & 7u) != 0)),
+                "invalid VIF1 tag-fetch snapshot");
+        break;
+    case VifChainPhase::tag_words:
+    case VifChainPhase::payload: {
+        const auto id = (channel.chcr >> 28u) & 7u;
+        require(source_chain_mode(channel.chcr) && (channel.chcr & 0x100u) != 0 &&
+                aligned_ram_address(channel.next_tag) && channel.packet_irq == ((channel.chcr & 0x80000000u) != 0) &&
+                ((id == 0 || id == 7) ? channel.packet_end : (id == 6 || !channel.packet_end)) &&
+                (!(id == 6 && channel.packet_end) || (channel.chcr & 0x30u) == 0),
+                "invalid VIF1 packet snapshot");
+        if (channel.phase == VifChainPhase::tag_words) {
+            require((channel.chcr & 0x40u) != 0 && channel.tag_cursor < 2 && !channel.loaded,
+                    "invalid VIF1 tag transport snapshot");
+        } else { require(channel.qwords != 0 && vif_tags_clear, "invalid VIF1 payload snapshot"); }
+        break;
+    }
+    default: throw std::invalid_argument("invalid VIF1 chain phase");
+    }
     replacement.iop_.restore(state.iop);
     replacement.iop_intc_.restore(state.iop_intc);
     replacement.iop_timers_.restore(state.iop_timers);

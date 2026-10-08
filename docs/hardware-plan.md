@@ -118,7 +118,7 @@ error. Instructions cannot be fetched from MMIO.
 | D_CTRL `0x1000e000` | DMAE bit0; disabling pauses implemented EE DMA endpoints |
 | D_STAT `0x1000e010` | Channels1/2/5/6 completion bits1/2/5/6 and masks17/18/21/22, bus-error bit15; low flags write-one-clear, high mask write-one-toggle |
 | SIF0/1 channels at `0x1000c000` / `0x1000c400` | Normal EE receive/send endpoints; see [sif.md](sif.md) |
-| D1_CHCR `0x10009000`, MADR +0x10, QWC +0x20 | Normal RAM-to-VIF1 DMA with word-level stall/partial-qword state |
+| D1_CHCR `0x10009000`, MADR +0x10, QWC +0x20 | Normal and RAM source-chain VIF1 DMA with upper64 tag transport and partial-word stalls; [contract](vif-dma-chain.md) |
 | D2_CHCR `0x1000a000` | Normal and RAM source-chain GIF DMA, TAG/ASP/TIE; active restart or reprogramming rejected; [chain contract](gif-dma-chain.md) |
 | GIF_CTRL `0x10003000`, GIF_STAT `0x10003020` | Queue reset/pause and modelled path status; see [GIF FIFO](gif-fifo.md) |
 | GIF_FIFO `0x10006000–0x10006ff0` | Shared 16-qword CPU/DMA queue; 128-bit stores only, full queue stalls |
@@ -138,7 +138,7 @@ already-consumed VIF state; callers must provide the remaining stream when
 restarting. This is a diagnostic transfer policy, not FIFO/bus cycle emulation.
 
 Missing: GS-driven video clocks, independent timer phase/gate conformance, remaining SBUS sources/control modes, real-time frequencies,
-other DMA channels, VIF/SIF chains, tag forwarding, stall control/MFIFO/interleave modes,
+other DMA channels, SIF chains, GIF tag forwarding, stall control/MFIFO/interleave modes,
 scratchpad DMA, hardware-accurate FIFO capacities, arbitration and cycle-level
 bus timing. Implemented VIF stalls and SIF bounded queues are documented diagnostic
 behavior, not measurements of hardware buffering.

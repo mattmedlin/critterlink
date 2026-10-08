@@ -103,7 +103,7 @@ void test_rejections() {
     rejected([&] { h.write(madr, 1); });
     rejected([&] { h.write(madr, 0x80000000); });
     rejected([&] { h.write(qwc, 0x10000); });
-    rejected([&] { h.write(chcr, 0x105); });
+    rejected([&] { h.write(chcr, 0x109); });
     start(h, 1);
     rejected([&] { h.write(madr, 16); });
     rejected([&] { h.write(qwc, 2); });

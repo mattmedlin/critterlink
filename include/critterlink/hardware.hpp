@@ -34,11 +34,19 @@ struct GifDmaState {
     bool packet_end{}, packet_irq{};
     bool operator==(const GifDmaState&) const = default;
 };
+enum class VifChainPhase { idle, tag, tag_words, payload };
 struct VifDmaState {
     std::uint32_t chcr{}, address{}, qwords{};
     std::array<std::uint32_t, 4> pending{};
     std::uint8_t cursor{};
     bool loaded{};
+    std::uint32_t tag_address{};
+    std::array<std::uint32_t, 2> asr{};
+    VifChainPhase phase{VifChainPhase::idle};
+    std::uint32_t next_tag{};
+    bool packet_end{}, packet_irq{};
+    std::array<std::uint32_t, 2> tag_words{};
+    unsigned tag_cursor{};
     bool operator==(const VifDmaState&) const = default;
 };
 struct GifFifoState {
