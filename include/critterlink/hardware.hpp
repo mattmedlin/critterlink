@@ -76,6 +76,7 @@ struct HardwareState {
     bool sbus_external_high{true};
     std::uint32_t iop_sbus_control{};
     bool ee_hblank{}, ee_vblank{};
+    bool gs_interrupt_high{true};
     bool operator==(const HardwareState&) const = default;
 };
 
@@ -85,6 +86,9 @@ public:
     Hardware();
     std::uint32_t read(std::uint32_t physical_address) const;
     void write(std::uint32_t physical_address, std::uint32_t value);
+    // Canonical GS privileged ports; Memory enforces aligned 64-bit access.
+    std::uint64_t read_gs(std::uint32_t address) const;
+    void write_gs(std::uint32_t address, std::uint64_t value);
     // False means backpressure: no part of the qword was accepted.
     bool write_quadword(std::uint32_t physical_address, std::array<std::uint32_t, 4> words);
     void advance(std::uint64_t ticks, std::span<std::uint8_t> ram, std::span<const std::uint8_t> boot_rom = {});
@@ -120,6 +124,7 @@ public:
 private:
     void sample_iop_interrupts();
     void sample_sbus_interrupt() noexcept;
+    void sample_gs_interrupt() noexcept;
     void tick_timers(bool external_clock = false);
     void tick_vif_dma(std::span<const std::uint8_t> ram);
     void tick_dma(std::span<const std::uint8_t> ram);
@@ -130,6 +135,7 @@ private:
     bool sbus_interrupt_high_{true}, sbus_external_high_{true};
     std::uint32_t iop_sbus_control_{};
     bool ee_hblank_{}, ee_vblank_{};
+    bool gs_interrupt_high_{true};
     std::uint32_t interrupt_status_{}, interrupt_mask_{};
     GifDmaState dma_;
     Graphics graphics_;

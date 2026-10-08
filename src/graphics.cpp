@@ -88,6 +88,8 @@ void Graphics::restore(const GraphicsState& state) {
             (state.bitbltbuf & ~bitbltbuf_mask) == 0 && (state.trxpos & ~trxpos_mask) == 0 &&
             (state.trxreg & ~trxreg_mask) == 0 && (state.trxdir == 0 || state.trxdir == 2 || state.trxdir == 3),
             "invalid GS local-memory or transfer-register snapshot");
+    require((state.imr & ~0x1f00u) == 0 && (!state.finish_pending || state.transfer.active),
+            "invalid GS FINISH fence or mask snapshot");
     const auto& transfer = state.transfer;
     if (transfer == GraphicsTransferState{}) {
         require(state.trxdir == 3, "invalid empty GS transfer snapshot");
@@ -113,6 +115,29 @@ void Graphics::restore(const GraphicsState& state) {
     auto replacement = state;
     state_ = std::move(replacement);
 }
+std::uint64_t Graphics::read_privileged(std::uint32_t address) const {
+    require(address == 0x12001000u, "unsupported or write-only GS privileged register");
+    // Synthetic diagnostic CSR: unimplemented video, FIFO and silicon-ID
+    // fields are zero, rather than an invented hardware revision.
+    return state_.finish_event ? 2u : 0u;
+}
+void Graphics::write_privileged(std::uint32_t address, std::uint64_t value) {
+    if (address == 0x12001010u) {
+        // GS IMR specifies writing ones to undefined bits; retain masks only.
+        state_.imr = static_cast<std::uint16_t>(value & 0x1f00u);
+        return;
+    }
+    require(address == 0x12001000u, "unsupported GS privileged register");
+    require((value & ~0x00000000fffff002ULL) == 0,
+            "unsupported GS CSR event, flush, reset, or reserved control");
+    if ((value & 2u) != 0) { state_.finish_event = false; }
+}
+void Graphics::resolve_finish() noexcept {
+    if (state_.finish_pending) {
+        state_.finish_pending = false;
+        state_.finish_event = true;
+    }
+}
 void Graphics::tick() {
     auto& transfer = state_.transfer;
     if (!transfer.active || !transfer.local_copy) { return; }
@@ -128,7 +153,10 @@ void Graphics::tick() {
                                               transfer.x + dx, transfer.y + dy);
     write_vram(destination, state_.vram[source / 4]);
     ++transfer.cursor;
-    if (transfer.cursor == transfer.rect_width * transfer.rect_height) { transfer.active = false; }
+    if (transfer.cursor == transfer.rect_width * transfer.rect_height) {
+        transfer.active = false;
+        resolve_finish();
+    }
 }
 void Graphics::submit_qword(std::array<std::uint32_t, 4> words) {
     const auto low = std::uint64_t{words[0]} | (std::uint64_t{words[1]} << 32);
@@ -176,7 +204,10 @@ void Graphics::write_hwreg(std::uint64_t value) {
                    static_cast<std::uint32_t>(value >> (half * 32)));
         ++transfer.cursor;
     }
-    if (transfer.cursor == transfer.rect_width * transfer.rect_height) { transfer.active = false; }
+    if (transfer.cursor == transfer.rect_width * transfer.rect_height) {
+        transfer.active = false;
+        resolve_finish();
+    }
 }
 void Graphics::write_register(std::uint8_t address, std::uint64_t value) {
     switch (address) {
@@ -245,11 +276,21 @@ void Graphics::write_register(std::uint8_t address, std::uint64_t value) {
             }
             transfer.active = true;
         }
+        // Completion/cancellation resolves the fence for the old operation
+        // before replacing it. Invalid starts have already failed above. Copy
+        // cancellation and waiting for local copy are explicit model policies.
+        resolve_finish();
         state_.transfer = transfer;
         state_.trxdir = static_cast<std::uint8_t>(value);
         break;
     }
     case 0x54: write_hwreg(value); break;
+    case 0x61:
+        // Always-ready, coalescing FINISH profile; later IMAGE data still flows
+        // so an outstanding upload can complete rather than deadlocking GIF.
+        if (state_.transfer.active) { state_.finish_pending = true; }
+        else { state_.finish_event = true; }
+        break;
     case 0x7f: break;
     case 0x05: {
         require(state_.primitive_ready && state_.frame_ready, "GS sprite needs PRIM and FRAME");

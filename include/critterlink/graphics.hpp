@@ -28,12 +28,17 @@ struct GraphicsState {
     std::uint64_t bitbltbuf{}, trxpos{}, trxreg{};
     std::uint8_t trxdir{3};
     GraphicsTransferState transfer;
+    bool finish_pending{}, finish_event{};
+    std::uint16_t imr{0x1f00};
     bool operator==(const GraphicsState&) const = default;
 };
 class Graphics {
 public:
     // One pixel of an active local copy per diagnostic logical tick.
     void tick();
+    std::uint64_t read_privileged(std::uint32_t address) const;
+    void write_privileged(std::uint32_t address, std::uint64_t value);
+    bool irq() const noexcept { return state_.finish_event && (state_.imr & 0x200u) == 0; }
     void submit_qword(std::array<std::uint32_t, 4> words);
     const GraphicsState& state() const noexcept { return state_; }
     void restore(const GraphicsState& state);
@@ -42,6 +47,7 @@ private:
     void write_register(std::uint8_t address, std::uint64_t value);
     void write_vram(std::uint32_t byte_address, std::uint32_t value);
     void write_hwreg(std::uint64_t value);
+    void resolve_finish() noexcept;
     GraphicsState state_{};
 };
 } // namespace critterlink

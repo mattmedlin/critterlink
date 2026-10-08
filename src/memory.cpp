@@ -37,7 +37,8 @@ Memory::Region Memory::resolve_range(std::uint32_t address, unsigned count, Acce
     if (direct) {
         physical = address & 0x1fffffffu;
     }
-    if (physical >= 0x10000000u && physical < 0x10010000u) {
+    if ((physical >= 0x10000000u && physical < 0x10010000u) ||
+        (physical >= 0x12000000u && physical < 0x14000000u)) {
         throw MemoryFault(MemoryError::device, access, address,
                           "this partial or quadword MMIO access is not implemented");
     }
@@ -103,6 +104,13 @@ std::uint64_t Memory::read(std::uint32_t address, unsigned width, Access access)
     if (width != 1 && width != 2 && width != 4 && width != 8) { throw std::invalid_argument("invalid memory width"); }
     if (address % width != 0) { throw MemoryFault(MemoryError::alignment, access, address); }
     const auto physical = address >= 0x80000000u && address < 0xc0000000u ? address & 0x1fffffffu : address;
+    if (physical >= 0x12000000u && physical < 0x14000000u) {
+        if (width != 8 || access == Access::fetch) {
+            throw MemoryFault(MemoryError::device, access, address, "GS privileged ports require 64-bit data access");
+        }
+        try { return hardware_.read_gs(physical); }
+        catch (const std::invalid_argument& error) { throw MemoryFault(MemoryError::device, access, address, error.what()); }
+    }
     if (physical >= 0x10000000 && physical < 0x10010000) {
         if (width != 4 || access == Access::fetch || address % 4 != 0) {
             throw MemoryFault(MemoryError::device, access, address, "EE MMIO requires aligned 32-bit data access");
@@ -122,6 +130,14 @@ void Memory::write(std::uint32_t address, unsigned width, std::uint64_t value) {
     if (width != 1 && width != 2 && width != 4 && width != 8) { throw std::invalid_argument("invalid memory width"); }
     if (address % width != 0) { throw MemoryFault(MemoryError::alignment, Access::store, address); }
     const auto physical = address >= 0x80000000u && address < 0xc0000000u ? address & 0x1fffffffu : address;
+    if (physical >= 0x12000000u && physical < 0x14000000u) {
+        if (width != 8) {
+            throw MemoryFault(MemoryError::device, Access::store, address, "GS privileged ports require 64-bit data access");
+        }
+        try { hardware_.write_gs(physical, value); }
+        catch (const std::invalid_argument& error) { throw MemoryFault(MemoryError::device, Access::store, address, error.what()); }
+        return;
+    }
     if (physical >= 0x10000000 && physical < 0x10010000) {
         if (width != 4 || address % 4 != 0) {
             throw MemoryFault(MemoryError::device, Access::store, address, "EE MMIO requires aligned 32-bit data access");

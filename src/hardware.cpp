@@ -155,6 +155,19 @@ Hardware::Hardware() { scheduler_.schedule(1, EventType::timer); }
 bool Hardware::int0() const noexcept { return (interrupt_status_ & interrupt_mask_) != 0; }
 bool Hardware::int1() const noexcept { return (dma_.status & (dma_.status >> 16) & 0x66u) != 0 || (dma_.status & 0x8000u) != 0; }
 
+std::uint64_t Hardware::read_gs(std::uint32_t address) const {
+    return graphics_.read_privileged(address);
+}
+void Hardware::write_gs(std::uint32_t address, std::uint64_t value) {
+    graphics_.write_privileged(address, value);
+    sample_gs_interrupt();
+}
+void Hardware::sample_gs_interrupt() noexcept {
+    const bool high = !graphics_.irq();
+    if (gs_interrupt_high_ && !high) { interrupt_status_ |= 1u; }
+    gs_interrupt_high_ = high;
+}
+
 std::uint32_t Hardware::read(std::uint32_t address) const {
     if (Sif::ee_address(address)) { return sif_.ee_read32(address); }
     if (address >= timer_base && address < timer_base + 0x2000) {
@@ -673,9 +686,11 @@ void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram, std::sp
         // delivery, so a newly received TRXDIR begins copying next logical tick.
         // DMAE and GIF pause gate input delivery, not an already active copy.
         if (!stop_) { graphics_.tick(); }
+        sample_gs_interrupt();
         if (!stop_) { tick_vif_dma(ram); }
         if (!stop_) { tick_dma(ram); }
         if (!stop_) { tick_gif(); }
+        sample_gs_interrupt();
         sample_iop_interrupts();
         if (event->tick != std::numeric_limits<std::uint64_t>::max()) {
             scheduler_.schedule(event->tick + 1, EventType::timer);
@@ -685,7 +700,7 @@ void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram, std::sp
 }
 
 HardwareState Hardware::state() const {
-    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state(), sio2_.state(), cdvd_.state(), gif_fifo_, iop_intc_.state(), iop_timers_.state(), sbus_interrupt_high_, sbus_external_high_, iop_sbus_control_, ee_hblank_, ee_vblank_};
+    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state(), sio2_.state(), cdvd_.state(), gif_fifo_, iop_intc_.state(), iop_timers_.state(), sbus_interrupt_high_, sbus_external_high_, iop_sbus_control_, ee_hblank_, ee_vblank_, gs_interrupt_high_};
 }
 
 void Hardware::restore(const HardwareState& state) {
@@ -787,6 +802,8 @@ void Hardware::restore(const HardwareState& state) {
     replacement.vector_.restore(state.vector);
     replacement.vif_dma_ = state.vif_dma;
     replacement.graphics_.restore(state.graphics);
+    require(state.gs_interrupt_high == !replacement.graphics_.irq(), "inconsistent GS interrupt-line snapshot");
+    replacement.gs_interrupt_high_ = state.gs_interrupt_high;
     require(state.gif_fifo.head < 16 && state.gif_fifo.count <= 16, "invalid GIF FIFO snapshot bounds");
     for (unsigned i = state.gif_fifo.count; i < 16; ++i) {
         const auto slot = (unsigned{state.gif_fifo.head} + i) % 16U;

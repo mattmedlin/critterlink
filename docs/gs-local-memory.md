@@ -93,9 +93,11 @@ values intact. A valid new upload/copy or cancellation replaces it; invalid star
 leave it unchanged. Extending restart/cancellation to active local copies is an
 explicit functional policy pending hardware evidence about interruption timing.
 
-Completion clears diagnostic active state and retains the final cursor. It does
-not create a DMA, FINISH or INTC interrupt. Guest-commanded copies are verified
-through host VRAM assertions and replay; this is not guest completion polling.
+Completion clears diagnostic active state and retains the final cursor. Without
+an explicit FINISH request it creates no completion interrupt. The separate
+[FINISH event path](gs-finish.md) can fence an active copy for guest acknowledgement.
+Copy tests also verify host VRAM assertions and replay; this does not implement
+guest pixel readback.
 
 ## Rendering, replay and remaining work
 
@@ -113,7 +115,8 @@ continuation, start/cancel, atomic errors, shared sprite storage and guest
 FIFO/DMA upload with interrupt and full-state replay.
 
 Overlapping local copies need independently established collision behavior.
-Local-to-host transfer needs FINISH/CSR, BUSDIR, reverse FIFO and a coherent host
-read path; exposing VRAM to tests does not implement it. Other formats,
+Local-to-host transfer still needs BUSDIR, reverse FIFO and a coherent host
+read path beyond the implemented FINISH/CSR event subset; exposing VRAM to tests
+does not implement it. Other formats,
 framebuffer configurations, texture sampling and real scanout remain open.
 Milestone #4 is not complete.
