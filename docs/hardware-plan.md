@@ -125,7 +125,9 @@ error. Instructions cannot be fetched from MMIO.
 | D2_MADR `0x1000a010`, D2_QWC `0x1000a020` | Qword-aligned physical RAM source and 16-bit count; advance at most one qword per logical tick |
 | D2_TADR `0x1000a030`, ASR0 `0x1000a040`, ASR1 `0x1000a050` | RAM tag address and two saved CALL return addresses |
 
-DMA completion clears STR and latches the relevant channel status. An out-of-RAM source
+Normal EE DMA retains TIE/TTE as inert flags, including SDK-style CHCR=0x181;
+see [normal flag compatibility](dma-normal-flags.md). DMA completion clears STR
+and latches the relevant channel status. An out-of-RAM source
 clears STR, sets channel/bus-error status and stops the diagnostic. A rejected
 GIF qword remains at the FIFO head and stops decoding; DMA may already have
 advanced because its transfer completes when data enters the FIFO. Empty transfers

@@ -11,6 +11,10 @@ constexpr std::uint32_t iop_masks = 0x000c0000, iop_flags = 0x0c000000;
 void require(bool condition, const char* message) {
     if (!condition) throw std::invalid_argument(message);
 }
+// Normal-mode TIE/TTE do not alter payload transport or completion.
+bool ee_chcr_supported(std::uint32_t chcr, bool send) {
+    return chcr == 0 || ((chcr & ~0x1c1u) == 0 && (chcr & 1u) == (send ? 1u : 0u));
+}
 bool ee_active(const SifEeDmaState& channel) { return (channel.chcr & ee_start) != 0; }
 bool iop_active(const SifIopDmaState& channel) { return (channel.chcr & iop_start) != 0; }
 void valid_range(std::span<std::uint8_t> ram, std::uint32_t address) {
@@ -21,7 +25,7 @@ void ee_write(SifEeDmaState& channel, std::uint32_t offset, std::uint32_t value,
               bool send) {
     if (offset == 0) {
         require(!ee_active(channel) || value == 0, "SIF EE DMA is already active");
-        require(value == 0 || value == (send ? 0x101u : 0x100u),
+        require(ee_chcr_supported(value, send),
                 "unsupported SIF EE DMA mode (only normal RAM transfers)");
         channel.chcr = value;
         return;
@@ -253,8 +257,7 @@ void Sif::restore(const SifState& state) {
     require(state.to_ee.size() <= fifo_capacity && state.to_iop.size() <= fifo_capacity,
             "invalid SIF FIFO snapshot");
     auto valid_ee = [](const SifEeDmaState& channel, bool send) {
-        return (channel.chcr == 0 || channel.chcr == (send ? 1u : 0u) ||
-                channel.chcr == (send ? 0x101u : 0x100u)) &&
+        return ee_chcr_supported(channel.chcr, send) &&
                (channel.address & 0xf) == 0 && channel.address < 0x80000000u &&
                channel.qwords <= 0xffff;
     };

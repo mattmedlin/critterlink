@@ -17,9 +17,15 @@ constexpr std::uint32_t d_ctrl = 0x1000e000, d_stat = 0x1000e010;
 constexpr std::uint32_t gif_ctrl = 0x10003000, gif_stat = 0x10003020;
 constexpr std::uint32_t dma_supported_status = 0x00668066; // channels 1/2/5/6 flags/masks and bus error
 bool source_chain_mode(std::uint32_t chcr) { return (chcr & 0xcu) == 4u; }
+// TIE applies to chain-tag IRQ and TTE to source-chain tag transport;
+// both writable bits are retained but inert in normal mode.
+bool normal_chcr_supported(std::uint32_t chcr) { return (chcr & ~0x1c1u) == 0; }
+bool reverse_vif_active(std::uint32_t chcr) {
+    return normal_chcr_supported(chcr) && (chcr & 0x101u) == 0x100u;
+}
 bool gif_chcr_supported(std::uint32_t chcr) {
     if (!source_chain_mode(chcr)) {
-        return (chcr & ~0x101u) == 0 && ((chcr & 0x100u) == 0 || (chcr & 1u) != 0);
+        return normal_chcr_supported(chcr) && ((chcr & 0x100u) == 0 || (chcr & 1u) != 0);
     }
     return (chcr & ~0xf00001b5u) == 0 && (chcr & 1u) != 0 && ((chcr >> 4u) & 3u) <= 2;
 }
@@ -41,7 +47,7 @@ void finish_gif_packet(GifDmaState& channel) {
     }
 }
 bool vif_chcr_supported(std::uint32_t chcr) {
-    return source_chain_mode(chcr) ? gif_chcr_supported(chcr & ~0x40u) : gif_chcr_supported(chcr);
+    return source_chain_mode(chcr) ? gif_chcr_supported(chcr & ~0x40u) : normal_chcr_supported(chcr);
 }
 void clear_vif_packet(VifDmaState& channel, VifChainPhase phase = VifChainPhase::idle) {
     channel.phase = phase;
@@ -310,10 +316,10 @@ void Hardware::write(std::uint32_t address, std::uint32_t value) {
         clear_vif_packet(vif_dma_);
         return;
     case d1_chcr: {
-        require(value == 0x100u || vif_chcr_supported(value), "unsupported VIF1 DMA direction, mode, priority, or stack depth");
+        require(vif_chcr_supported(value), "unsupported VIF1 DMA direction, mode, priority, or stack depth");
         require((vif_dma_.chcr & 0x100u) == 0 || value == 0,
                 "active VIF1 DMA may only be aborted, not restarted");
-        if (value == 0x100u) {
+        if (reverse_vif_active(value)) {
             require(gs_busdir_ && vif_fdr_ && graphics_.has_readback() && vif_dma_.qwords != 0 &&
                     (vif_dma_.qwords % 8u) == 0 && vif_dma_.qwords ==
                     graphics_.remaining_readback_qwords() + vif_readback_fifo_.count,
@@ -830,7 +836,7 @@ void Hardware::restore(const HardwareState& state) {
     default: throw std::invalid_argument("invalid GIF chain phase");
     }
     const auto& channel = state.vif_dma;
-    require((channel.chcr == 0x100u || vif_chcr_supported(channel.chcr)) && aligned_ram_address(channel.address) &&
+    require(vif_chcr_supported(channel.chcr) && aligned_ram_address(channel.address) &&
             aligned_ram_address(channel.tag_address) && aligned_ram_address(channel.asr[0]) &&
             aligned_ram_address(channel.asr[1]) && channel.qwords <= 0xffffu && channel.cursor < 4 &&
             (!channel.loaded || ((channel.chcr & 0x100u) != 0 && channel.qwords != 0)) &&
@@ -896,7 +902,7 @@ void Hardware::restore(const HardwareState& state) {
                 !channel.loaded && state.vector.payload == 0 && !state.vector.running && (!state.graphics.transfer.active || replacement.graphics_.has_readback()) &&
                 (state.vif_fdr || (remaining == 0 && reverse.count == 0)), "invalid reverse bus snapshot");
     }
-    if (channel.chcr == 0x100u) {
+    if (reverse_vif_active(channel.chcr)) {
         require(state.gs_busdir && state.vif_fdr && replacement.graphics_.has_readback() &&
                 channel.qwords != 0 && channel.qwords == remaining + reverse.count && !channel.loaded,
                 "invalid reverse DMA snapshot");

@@ -33,7 +33,7 @@ before replacing an operation.
 | VIF1_STAT 0x10003c00 | 32-bit FDR bit23 and reverse FIFO count FQC bits28:24 |
 | GS_BUSDIR 0x12001040 | 64-bit write, bit0 chooses reverse/forward |
 | VIF1_FIFO 0x10005000–0x10005ff0 | Aligned 128-bit reverse reads, with existing direct segment aliases |
-| D1_CHCR / MADR / QWC | Normal reverse DMA, CHCR=0x100, aligned destination and exact remaining count |
+| D1_CHCR / MADR / QWC | Normal reverse DMA, CHCR=0x100 plus inert TIE/TTE flags, aligned destination and exact remaining count |
 
 FINISH after readback setup does not wait for host consumption: otherwise the
 normal FINISH-before-BUSDIR handshake would deadlock. Reading the final pixel
