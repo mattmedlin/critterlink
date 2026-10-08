@@ -1,9 +1,16 @@
 #pragma once
 #include <array>
 #include <cstdint>
+#include <vector>
 
 namespace critterlink {
-// Deliberately bounded diagnostic surface, not GS local-memory emulation.
+enum class GifMode { packed, image };
+struct GraphicsTransferState {
+    std::uint32_t base{}, width{}, x{}, y{}, rect_width{}, rect_height{}, cursor{};
+    bool active{};
+    bool operator==(const GraphicsTransferState&) const = default;
+};
+// Fixed 64x64 diagnostic view backed by real PSMCT32 GS local memory.
 struct GraphicsState {
     std::array<std::uint32_t, 64 * 64> pixels{};
     std::uint32_t remaining{};
@@ -13,6 +20,11 @@ struct GraphicsState {
     std::uint16_t scissor_x0{}, scissor_x1{63}, scissor_y0{}, scissor_y1{63};
     std::uint16_t first_x{}, first_y{};
     bool primitive_ready{}, frame_ready{}, vertex_pending{};
+    std::vector<std::uint32_t> vram = std::vector<std::uint32_t>(1U << 20);
+    GifMode mode{GifMode::packed};
+    std::uint64_t bitbltbuf{}, trxpos{}, trxreg{};
+    std::uint8_t trxdir{3};
+    GraphicsTransferState transfer;
     bool operator==(const GraphicsState&) const = default;
 };
 class Graphics {
@@ -20,9 +32,11 @@ public:
     void submit_qword(std::array<std::uint32_t, 4> words);
     const GraphicsState& state() const noexcept { return state_; }
     void restore(const GraphicsState& state);
-    void reset() noexcept { state_ = {}; }
+    void reset() { state_ = {}; }
 private:
     void write_register(std::uint8_t address, std::uint64_t value);
+    void write_vram(std::uint32_t byte_address, std::uint32_t value);
+    void write_hwreg(std::uint64_t value);
     GraphicsState state_{};
 };
 } // namespace critterlink

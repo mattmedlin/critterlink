@@ -1,12 +1,53 @@
 #include "critterlink/graphics.hpp"
+#include "critterlink/gs_memory.hpp"
 #include <algorithm>
 #include <stdexcept>
+#include <utility>
 
 namespace critterlink {
 namespace {
 void require(bool condition, const char* message) {
     if (!condition) throw std::invalid_argument(message);
 }
+constexpr std::uint64_t bitbltbuf_mask = 0x3f3f3fff3f3f3fffULL;
+constexpr std::uint64_t trxpos_mask = 0x1fff07ff07ff07ffULL;
+constexpr std::uint64_t trxreg_mask = 0x00000fff00000fffULL;
+void validate_rectangle(const GraphicsTransferState& transfer) {
+    require(transfer.width >= 1 && transfer.width <= 32 && transfer.base < 16384 &&
+            transfer.rect_width != 0 && transfer.rect_width <= 4095 &&
+            transfer.rect_height != 0 && transfer.rect_height <= 4095 &&
+            (transfer.rect_width & 1u) == 0 && transfer.x < 2048 && transfer.y < 2048 &&
+            transfer.x < transfer.width * 64 &&
+            transfer.rect_width <= transfer.width * 64 - transfer.x &&
+            transfer.rect_height <= 2048 - transfer.y,
+            "GS upload requires an even nonzero rectangle within buffer and coordinate bounds");
+    // Within each 8x8 PSMCT32 block the local word offset grows with x/y.
+    // Check every touched block's last pixel, including base-pointer page carry.
+    const auto end_x = transfer.x + transfer.rect_width;
+    const auto end_y = transfer.y + transfer.rect_height;
+    for (auto y = transfer.y; y < end_y;) {
+        const auto next_y = std::min((y / 8 + 1) * 8, end_y);
+        for (auto x = transfer.x; x < end_x;) {
+            const auto next_x = std::min((x / 8 + 1) * 8, end_x);
+            static_cast<void>(gs_psmct32_address(transfer.base, transfer.width, next_x - 1, next_y - 1));
+            x = next_x;
+        }
+        y = next_y;
+    }
+}
+const std::array<std::uint16_t, 4096>& framebuffer_indices() {
+    static const auto indices = [] {
+        std::array<std::uint16_t, 4096> result{};
+        for (std::uint32_t y = 0; y < 64; ++y) {
+            for (std::uint32_t x = 0; x < 64; ++x) {
+                result[gs_psmct32_address(0, 1, x, y) / 4] = static_cast<std::uint16_t>(y * 64 + x);
+            }
+        }
+        return result;
+    }();
+    return indices;
+}
+
 }
 void Graphics::restore(const GraphicsState& state) {
     require(state.remaining <= 32767 && state.scissor_x0 <= 2047 &&
@@ -16,26 +57,75 @@ void Graphics::restore(const GraphicsState& state) {
             (state.first_y % 16) == 0 &&
             (!state.vertex_pending || (state.primitive_ready && state.frame_ready)),
             "invalid graphics snapshot");
-    state_ = state;
+    require(state.vram.size() == (1U << 20) &&
+            (state.mode == GifMode::packed || state.mode == GifMode::image) &&
+            (state.bitbltbuf & ~bitbltbuf_mask) == 0 && (state.trxpos & ~trxpos_mask) == 0 &&
+            (state.trxreg & ~trxreg_mask) == 0 && (state.trxdir == 0 || state.trxdir == 3),
+            "invalid GS local-memory or transfer-register snapshot");
+    const auto& transfer = state.transfer;
+    if (transfer == GraphicsTransferState{}) {
+        require(state.trxdir == 3, "invalid empty GS transfer snapshot");
+    } else {
+        validate_rectangle(transfer);
+        const auto total = transfer.rect_width * transfer.rect_height;
+        require(state.trxdir == 0 && transfer.cursor <= total && (transfer.cursor & 1u) == 0 &&
+                transfer.active == (transfer.cursor < total), "invalid GS transfer cursor snapshot");
+    }
+    const auto& indices = framebuffer_indices();
+    for (std::size_t word = 0; word < indices.size(); ++word) {
+        require(state.pixels[indices[word]] == state.vram[word], "GS framebuffer cache differs from local memory");
+    }
+    // Copy allocation completes before replacing any of the current state.
+    auto replacement = state;
+    state_ = std::move(replacement);
 }
 void Graphics::submit_qword(std::array<std::uint32_t, 4> words) {
     const auto low = std::uint64_t{words[0]} | (std::uint64_t{words[1]} << 32);
     if (state_.remaining == 0) {
-        require(((low >> 58) & 3) == 0 && ((low >> 60) & 15) == 1 &&
-                words[2] == 14 && words[3] == 0,
-                "GIF supports only PACKED single A+D descriptor");
-        require((low & 0x00003fffffff0000ULL) == 0,
-                "GIF tag reserved bits must be zero");
         const auto loops = static_cast<std::uint32_t>(low & 0x7fff);
-        const bool pre = ((low >> 46) & 1) != 0;
-        if (pre) write_register(0, (low >> 47) & 0x7ff);
+        // EE User's Manual v6.0 p151: a zero-loop tag ignores every field
+        // except EOP; this model has no path arbitration driven by EOP.
+        if (loops == 0) { return; }
+        const auto mode = (low >> 58) & 3;
+        // The same table specifies FLG3 (Disable) performs the IMAGE operation.
+        require(mode == 0 || mode == 2 || mode == 3, "unsupported GIF transport mode");
+        require((low & 0x00003fffffff0000ULL) == 0, "GIF tag reserved bits must be zero");
+        if (mode == 0) {
+            require(((low >> 60) & 15) == 1 && words[2] == 14 && words[3] == 0,
+                    "GIF PACKED supports only a single A+D descriptor");
+            if (((low >> 46) & 1) != 0) { write_register(0, (low >> 47) & 0x7ff); }
+        }
+        state_.mode = mode == 0 ? GifMode::packed : GifMode::image;
         state_.remaining = loops;
+        return;
+    }
+    if (state_.mode == GifMode::image) {
+        write_hwreg(low);
+        write_hwreg(std::uint64_t{words[2]} | (std::uint64_t{words[3]} << 32));
+        --state_.remaining;
         return;
     }
     require((words[2] & 0xffffff00U) == 0 && words[3] == 0,
             "GIF A+D address must fit eight bits");
     write_register(static_cast<std::uint8_t>(words[2]), low);
     --state_.remaining;
+}
+void Graphics::write_vram(std::uint32_t byte_address, std::uint32_t value) {
+    const auto word = byte_address / 4;
+    state_.vram[word] = value;
+    if (word < 4096) { state_.pixels[framebuffer_indices()[word]] = value; }
+}
+void Graphics::write_hwreg(std::uint64_t value) {
+    auto& transfer = state_.transfer;
+    if (!transfer.active) { return; }
+    for (unsigned half = 0; half < 2; ++half) {
+        const auto x = transfer.x + transfer.cursor % transfer.rect_width;
+        const auto y = transfer.y + transfer.cursor / transfer.rect_width;
+        write_vram(gs_psmct32_address(transfer.base, transfer.width, x, y),
+                   static_cast<std::uint32_t>(value >> (half * 32)));
+        ++transfer.cursor;
+    }
+    if (transfer.cursor == transfer.rect_width * transfer.rect_height) { transfer.active = false; }
 }
 void Graphics::write_register(std::uint8_t address, std::uint64_t value) {
     switch (address) {
@@ -68,6 +158,37 @@ void Graphics::write_register(std::uint8_t address, std::uint64_t value) {
     case 0x1a: require(value == 1, "GS requires PRMODECONT=1"); break;
     case 0x47: require(value == 0, "GS diagnostic renderer has no alpha or depth tests"); break;
     case 0x4e: require(value == 0x100000000ULL, "GS requires depth writes masked"); break;
+    case 0x50:
+        require((value & ~bitbltbuf_mask) == 0, "GS BITBLTBUF reserved bits");
+        state_.bitbltbuf = value;
+        break;
+    case 0x51:
+        require((value & ~trxpos_mask) == 0, "GS TRXPOS reserved bits");
+        state_.trxpos = value;
+        break;
+    case 0x52:
+        require((value & ~trxreg_mask) == 0, "GS TRXREG reserved bits");
+        state_.trxreg = value;
+        break;
+    case 0x53: {
+        require(value == 0 || value == 3, "GS supports only host-to-local transfer or deactivation");
+        GraphicsTransferState transfer;
+        if (value == 0) {
+            require(((state_.bitbltbuf >> 56) & 63) == 0, "GS upload requires PSMCT32 destination");
+            transfer.base = static_cast<std::uint32_t>((state_.bitbltbuf >> 32) & 0x3fff);
+            transfer.width = static_cast<std::uint32_t>((state_.bitbltbuf >> 48) & 63);
+            transfer.x = static_cast<std::uint32_t>((state_.trxpos >> 32) & 2047);
+            transfer.y = static_cast<std::uint32_t>((state_.trxpos >> 48) & 2047);
+            transfer.rect_width = static_cast<std::uint32_t>(state_.trxreg & 4095);
+            transfer.rect_height = static_cast<std::uint32_t>((state_.trxreg >> 32) & 4095);
+            validate_rectangle(transfer);
+            transfer.active = true;
+        }
+        state_.transfer = transfer;
+        state_.trxdir = static_cast<std::uint8_t>(value);
+        break;
+    }
+    case 0x54: write_hwreg(value); break;
     case 0x7f: break;
     case 0x05: {
         require(state_.primitive_ready && state_.frame_ready, "GS sprite needs PRIM and FRAME");
@@ -89,8 +210,10 @@ void Graphics::write_register(std::uint8_t address, std::uint64_t value) {
         const int bottom = std::min({std::max(y0, y1), int{state_.scissor_y1} + 1, 64});
         for (int row = top; row < bottom; ++row) {
             for (int col = left; col < right; ++col) {
-                auto& pixel = state_.pixels[static_cast<std::size_t>(row * 64 + col)];
-                pixel = (pixel & state_.frame_mask) | (state_.rgba & ~state_.frame_mask);
+                const auto location = gs_psmct32_address(0, 1, static_cast<std::uint32_t>(col),
+                                                       static_cast<std::uint32_t>(row));
+                const auto pixel = state_.vram[location / 4];
+                write_vram(location, (pixel & state_.frame_mask) | (state_.rgba & ~state_.frame_mask));
             }
         }
         state_.vertex_pending = false;

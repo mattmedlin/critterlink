@@ -37,7 +37,7 @@ int main() {
         reg(g, 5, xy(0, 0)); reg(g, 5, xy(2, 2));
         check(g.state().pixels[0] == 0x00ffffff, "offset negative clipping");
         auto good = g.state();
-        rejected([&] { g.submit_qword({1, 0x18000000, 14, 0}); });
+        rejected([&] { g.submit_qword({1, 0x14000000, 14, 0}); });
         check(g.state() == good, "unsupported tag mutated state");
         rejected([&] { g.submit_qword({1, 0x10000000, 5, 0}); });
         tag(g, 1); good = g.state();
@@ -45,7 +45,7 @@ int main() {
         check(g.state() == good, "unsupported primitive consumed packet");
         rejected([&] { reg(g, 0x4c, 0x20000); });
         rejected([&] { reg(g, 5, 1); });
-        rejected([&] { reg(g, 0x50, 0); });
+        rejected([&] { reg(g, 0x55, 0); });
         rejected([&] { g.submit_qword({0, 0, 0x100, 0}); });
         auto bad = g.state(); bad.remaining = 32768;
         rejected([&] { g.restore(bad); }); check(g.state() == good, "bad restore mutated state");

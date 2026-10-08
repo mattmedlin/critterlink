@@ -156,7 +156,7 @@ void interrupt_retry() {
 
 void rejected_packet() {
     Memory memory;
-    memory.write_quadword(fifo,{0,0}); // Unsupported tag, accepted into the posted queue.
+    memory.write_quadword(fifo,{0x0400000000000001ULL,0}); // Nonempty REGLIST: unsupported, but posted into the queue.
     const auto before=memory.hardware().state();
     memory.advance(1);
     const auto failed=memory.state();
