@@ -1290,3 +1290,23 @@ passed all eight supported platform/configuration jobs at the exact revision.
 CSR metadata remains an explicit synthetic placeholder; the always-ready latch,
 local-copy fencing and cancellation ordering are documented profile policies.
 This does not complete GS events, timing or firmware compatibility. #22/#4 stay open.
+
+## Guest GS readback through VIF1
+
+Source `a8223039e2006d4613ba73eefa7b2665244e075a` adds PSMCT32 readback through
+a separate 16-qword reverse FIFO, VIF1 FDR/FQC, BUSDIR, destructive CPU LQ and
+normal reverse channel1 DMA. Tests cover literal raster packing, odd widths,
+latched queue data, stalls, direction guards, RAM bounds before FIFO consumption,
+invalid snapshots and an original guest that uploads pixels, reads them into
+RAM, verifies every word, services INT1 and restores forward rendering.
+
+The initial guest fixture set PC without setting next-PC; correcting its initial
+state made the original assertions pass without changing production behavior.
+All 72 suites then passed Release (24.48 seconds), Debug (442.38 seconds) and
+ASan/UBSan (894.19 seconds).
+[GitHub Actions run 37834281956](https://github.com/mattmedlin/critterlink/actions/runs/37834281956)
+passed all eight supported platform/configuration jobs at the exact source.
+The [readback contract](gs-readback.md) records alignment/count restrictions,
+synthetic status fields and producer/bus-direction policies. This is actual guest
+pixel transport within that profile, not unmodified SDK screenshot compatibility,
+full GS timing or milestone #4 completion. #20/#22/#4 remain open.
