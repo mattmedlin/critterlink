@@ -1253,3 +1253,22 @@ passed all eight supported configurations at final revision
 The GS transfer test also passed the 1 MiB stack limit with a 2608-byte maximum
 unoptimized frame. Format, wrap, rendering and timing limitations remain explicit
 in [GS local memory](gs-local-memory.md). #22 and #4 remain open.
+
+## Bounded GS local-to-local copies
+
+Source `80c6de87ccafdf12e68987a8668011eac987ab65` adds PSMCT32 local copies in
+all four traversal directions, one pixel per logical hardware tick. Both memory
+footprints are validated before start and exact physical overlap is explicitly
+unsupported. Tests cover literal progress/order, differing strides and base
+carry, odd-cursor snapshots, latched parameters, restart/cancel, live-read policy,
+DMA/GIF pause independence and original guest-commanded copy replay.
+
+All 70 suites passed local Debug (397.28 seconds), Release (19.19 seconds) and
+ASan/UBSan (813.82 seconds). The Release full run preceded one added live-read
+case; that final focused suite passed (0.44 seconds). Debug and sanitizer full
+runs included it. The Debug copy suite also passed under a 1 MiB stack limit.
+[GitHub Actions run 37831237023](https://github.com/mattmedlin/critterlink/actions/runs/37831237023)
+passed all eight supported platform/configuration jobs at the exact source.
+The one-pixel schedule, live reads and cancellation are documented policies,
+not cycle-level hardware evidence. Copies do not imply readback, overlapping
+copy behavior or full GS completion. #22 and #4 remain open.

@@ -20,7 +20,8 @@ subtraction, inclusive scissor bounds, and half-open sprite bounds.
 The 64-by-64 view caches `0xAABBGGRR` words from shared 4 MiB swizzled PSMCT32
 local memory. Uploads and sprites use that same backing storage. There is no
 display scanout, pixel clock, depth storage, texture sampling, blending, fractional rasterization,
-VU-to-GIF XGKICK, GIF path arbitration, or privileged GS register interface. Reset uses
+VU-to-GIF XGKICK or GIF path arbitration. The privileged interface currently
+provides only the [FINISH/CSR/IMR event subset](gs-finish.md). Reset uses
 explicit diagnostic defaults (full-surface scissor and disabled tests/depth
 writes), not a claim of hardware reset behavior. Q and Z do not affect this
 untextured, depth-disabled path. Unsupported formats/registers fail rather than
