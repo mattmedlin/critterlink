@@ -24,8 +24,14 @@ struct TimerState {
     bool gate_wait{};
     bool operator==(const TimerState&) const = default;
 };
+enum class GifChainPhase { idle, tag, payload };
 struct GifDmaState {
     std::uint32_t control{}, status{}, chcr{}, address{}, qwords{};
+    std::uint32_t tag_address{};
+    std::array<std::uint32_t, 2> asr{};
+    GifChainPhase phase{GifChainPhase::idle};
+    std::uint32_t next_tag{};
+    bool packet_end{}, packet_irq{};
     bool operator==(const GifDmaState&) const = default;
 };
 struct VifDmaState {

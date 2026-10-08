@@ -119,10 +119,11 @@ error. Instructions cannot be fetched from MMIO.
 | D_STAT `0x1000e010` | Channels1/2/5/6 completion bits1/2/5/6 and masks17/18/21/22, bus-error bit15; low flags write-one-clear, high mask write-one-toggle |
 | SIF0/1 channels at `0x1000c000` / `0x1000c400` | Normal EE receive/send endpoints; see [sif.md](sif.md) |
 | D1_CHCR `0x10009000`, MADR +0x10, QWC +0x20 | Normal RAM-to-VIF1 DMA with word-level stall/partial-qword state |
-| D2_CHCR `0x1000a000` | Normal memory-to-GIF direction/start only; active restart or reprogramming rejected |
+| D2_CHCR `0x1000a000` | Normal and RAM source-chain GIF DMA, TAG/ASP/TIE; active restart or reprogramming rejected; [chain contract](gif-dma-chain.md) |
 | GIF_CTRL `0x10003000`, GIF_STAT `0x10003020` | Queue reset/pause and modelled path status; see [GIF FIFO](gif-fifo.md) |
 | GIF_FIFO `0x10006000–0x10006ff0` | Shared 16-qword CPU/DMA queue; 128-bit stores only, full queue stalls |
-| D2_MADR `0x1000a010`, D2_QWC `0x1000a020` | Qword-aligned physical RAM source and 16-bit count; advance one qword per logical tick |
+| D2_MADR `0x1000a010`, D2_QWC `0x1000a020` | Qword-aligned physical RAM source and 16-bit count; advance at most one qword per logical tick |
+| D2_TADR `0x1000a030`, ASR0 `0x1000a040`, ASR1 `0x1000a050` | RAM tag address and two saved CALL return addresses |
 
 DMA completion clears STR and latches the relevant channel status. An out-of-RAM source
 clears STR, sets channel/bus-error status and stops the diagnostic. A rejected
@@ -137,7 +138,7 @@ already-consumed VIF state; callers must provide the remaining stream when
 restarting. This is a diagnostic transfer policy, not FIFO/bus cycle emulation.
 
 Missing: GS-driven video clocks, independent timer phase/gate conformance, remaining SBUS sources/control modes, real-time frequencies,
-other DMA channels, chain/interleave modes,
+other DMA channels, VIF/SIF chains, tag forwarding, stall control/MFIFO/interleave modes,
 scratchpad DMA, hardware-accurate FIFO capacities, arbitration and cycle-level
 bus timing. Implemented VIF stalls and SIF bounded queues are documented diagnostic
 behavior, not measurements of hardware buffering.

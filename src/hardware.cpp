@@ -1,4 +1,5 @@
 #include "critterlink/hardware.hpp"
+#include "critterlink/dma_chain.hpp"
 
 #include <limits>
 #include <stdexcept>
@@ -10,9 +11,34 @@ constexpr std::uint32_t timer_base = 0x10000000;
 constexpr std::uint32_t intc_stat = 0x1000f000, intc_mask = 0x1000f010;
 constexpr std::uint32_t d1_chcr = 0x10009000, d1_madr = 0x10009010, d1_qwc = 0x10009020;
 constexpr std::uint32_t d2_chcr = 0x1000a000, d2_madr = 0x1000a010, d2_qwc = 0x1000a020;
+constexpr std::uint32_t d2_tadr = 0x1000a030, d2_asr0 = 0x1000a040, d2_asr1 = 0x1000a050;
 constexpr std::uint32_t d_ctrl = 0x1000e000, d_stat = 0x1000e010;
 constexpr std::uint32_t gif_ctrl = 0x10003000, gif_stat = 0x10003020;
 constexpr std::uint32_t dma_supported_status = 0x00668066; // channels 1/2/5/6 flags/masks and bus error
+bool gif_chain(std::uint32_t chcr) { return (chcr & 0xcu) == 4u; }
+bool gif_chcr_supported(std::uint32_t chcr) {
+    if (!gif_chain(chcr)) {
+        return (chcr & ~0x101u) == 0 && ((chcr & 0x100u) == 0 || (chcr & 1u) != 0);
+    }
+    return (chcr & ~0xf00001b5u) == 0 && (chcr & 1u) != 0 && ((chcr >> 4u) & 3u) <= 2;
+}
+bool gif_ram_address(std::uint32_t address) { return (address & 0x8000000fu) == 0; }
+void clear_gif_packet(GifDmaState& channel, GifChainPhase phase = GifChainPhase::idle) {
+    channel.phase = phase;
+    channel.next_tag = 0;
+    channel.packet_end = false;
+    channel.packet_irq = false;
+}
+void finish_gif_packet(GifDmaState& channel) {
+    channel.tag_address = channel.next_tag;
+    const bool end = channel.packet_end;
+    const bool interrupt = (channel.chcr & 0x80u) != 0 && channel.packet_irq;
+    clear_gif_packet(channel, end ? GifChainPhase::idle : GifChainPhase::tag);
+    if (end || interrupt) {
+        channel.chcr &= ~0x100u;
+        channel.status |= 4u;
+    }
+}
 unsigned divisor(std::uint16_t mode) {
     constexpr std::array<unsigned, 4> divisors{1, 16, 256, 1};
     return divisors[mode & 3u];
@@ -137,6 +163,9 @@ std::uint32_t Hardware::read(std::uint32_t address) const {
     case d2_chcr: return dma_.chcr;
     case d2_madr: return dma_.address;
     case d2_qwc: return dma_.qwords;
+    case d2_tadr: return dma_.tag_address;
+    case d2_asr0: return dma_.asr[0];
+    case d2_asr1: return dma_.asr[1];
     default: throw std::invalid_argument("unsupported EE hardware register");
     }
 }
@@ -190,7 +219,7 @@ void Hardware::write(std::uint32_t address, std::uint32_t value) {
         interrupt_mask_ ^= value;
         return;
     case d_ctrl:
-        require((value & ~1u) == 0, "only normal DMA enable is implemented");
+        require((value & ~1u) == 0, "only global DMA enable is implemented; stall and MFIFO controls are unsupported");
         dma_.control = value;
         return;
     case d_stat:
@@ -215,22 +244,47 @@ void Hardware::write(std::uint32_t address, std::uint32_t value) {
         if (value == 0) { vif_dma_.loaded = false; vif_dma_.cursor = 0; vif_dma_.pending = {}; }
         return;
     case d2_madr:
+    case d2_tadr:
+    case d2_asr0:
+    case d2_asr1:
         require((dma_.chcr & 0x100u) == 0, "cannot change an active GIF DMA address");
-        require((value & 15u) == 0, "GIF DMA address must be qword-aligned; scratchpad mode is unsupported");
-        require((value & 0x80000000u) == 0, "GIF DMA scratchpad mode is unsupported");
-        dma_.address = value;
+        require(gif_ram_address(value), "GIF DMA requires qword-aligned RAM; scratchpad unsupported");
+        if (address == d2_madr) { dma_.address = value; }
+        else if (address == d2_tadr) { dma_.tag_address = value; }
+        else { dma_.asr[address == d2_asr0 ? 0 : 1] = value; }
+        clear_gif_packet(dma_);
         return;
     case d2_qwc:
         require((dma_.chcr & 0x100u) == 0 && value <= 0xffffu, "invalid or active GIF DMA count");
         dma_.qwords = value;
+        clear_gif_packet(dma_);
         return;
-    case d2_chcr:
-        require((value & ~0x101u) == 0 && ((value & 0x100u) == 0 || (value & 1u) != 0),
-                "GIF DMA supports only normal RAM-to-GIF transfers (no chain/interleave)");
+    case d2_chcr: {
+        require(gif_chcr_supported(value), "unsupported GIF DMA mode, tag transfer, priority, or stack depth");
         require((dma_.chcr & 0x100u) == 0 || value == 0,
-                "active GIF DMA may only be stopped, not restarted");
-        dma_.chcr = value;
+                "active GIF DMA may only be aborted, not restarted");
+        auto next = dma_;
+        // Explicit model abort: retained registers survive, decoded packet does not.
+        if (value == 0 || !gif_chain(value)) { clear_gif_packet(next); }
+        else {
+            const bool resume = next.phase == GifChainPhase::tag && next.qwords == 0 &&
+                (value & 0xf0000035u) == (next.chcr & 0xf0000035u);
+            if (!resume) {
+                clear_gif_packet(next);
+                if ((value & 0x100u) != 0) {
+                    const auto tag = value & 0xffff0000u;
+                    const bool fresh = next.qwords == 0 && (tag == 0 || tag == 0x10000000u);
+                    const bool preload = next.qwords != 0 && tag == 0x10000000u;
+                    require(fresh || preload, "unsupported GIF source-chain launch or restart state");
+                    next.phase = fresh ? GifChainPhase::tag : GifChainPhase::payload;
+                    if (preload) { next.next_tag = next.tag_address; }
+                }
+            }
+        }
+        next.chcr = value;
+        dma_ = next;
         return;
+    }
     default: throw std::invalid_argument("unsupported EE hardware register");
     }
 }
@@ -368,25 +422,69 @@ void Hardware::tick_vif_dma(std::span<const std::uint8_t> ram) {
 
 void Hardware::tick_dma(std::span<const std::uint8_t> ram) {
     if ((dma_.control & 1u) == 0 || (dma_.chcr & 0x100u) == 0) { return; }
-    if (dma_.qwords != 0) {
-        if (gif_fifo_.count == 16) return;
-        if (dma_.address > ram.size() || ram.size() - dma_.address < 16) {
-            dma_.chcr &= ~0x100u;
-            dma_.status |= 0x8004u;
-            stop_ = "GIF DMA source outside RAM; transfer stopped with bus-error status";
-            return;
-        }
+    const auto bus_error = [&](const char* reason) {
+        dma_.chcr &= ~0x100u;
+        dma_.status |= 0x8004u;
+        clear_gif_packet(dma_);
+        stop_ = reason;
+    };
+    const auto in_ram = [&](std::uint32_t address) {
+        return address <= ram.size() && ram.size() - address >= 16;
+    };
+    const auto read_qword = [&](std::uint32_t address) {
         std::array<std::uint32_t, 4> words{};
         for (unsigned n = 0; n < 16; ++n) {
-            words[n / 4] |= std::uint32_t{ram[dma_.address + n]} << ((n % 4) * 8);
+            words[n / 4] |= std::uint32_t{ram[address + n]} << ((n % 4) * 8);
         }
-        enqueue_gif(words);
+        return words;
+    };
+    if (gif_chain(dma_.chcr) && dma_.phase == GifChainPhase::tag) {
+        if (!in_ram(dma_.tag_address)) {
+            bus_error("GIF DMA tag outside RAM; transfer stopped with bus-error status");
+            return;
+        }
+        SourceChainPacket packet;
+        try {
+            packet = decode_source_chain(dma_.tag_address, read_qword(dma_.tag_address),
+                                         {dma_.asr, (dma_.chcr >> 4u) & 3u});
+        } catch (const std::invalid_argument& error) {
+            // Unsupported profile capabilities are not manufactured bus errors.
+            stop_ = std::string("GIF DMA source tag: ") + error.what();
+            return;
+        }
+        dma_.chcr = (dma_.chcr & 0x0000ffcfu) |
+                    (std::uint32_t{packet.tag} << 16u) | (packet.stack.depth << 4u);
+        dma_.asr = packet.stack.addresses;
+        dma_.qwords = packet.qwords;
+        if (packet.stack_overflow) {
+            dma_.chcr &= ~0x100u;
+            dma_.status |= 4u;
+            clear_gif_packet(dma_);
+            return;
+        }
+        dma_.address = packet.address;
+        dma_.next_tag = packet.next_tag;
+        dma_.packet_end = packet.end;
+        dma_.packet_irq = (packet.tag & 0x8000u) != 0;
+        dma_.phase = GifChainPhase::payload;
+        // One tag per logical tick, including empty-tag cycles. No payload is
+        // enqueued on this tick, even if the FIFO has room.
+        if (dma_.qwords == 0) { finish_gif_packet(dma_); }
+        return;
+    }
+    if (dma_.qwords != 0) {
+        if (gif_fifo_.count == 16) { return; }
+        if (!in_ram(dma_.address)) {
+            bus_error("GIF DMA source outside RAM; transfer stopped with bus-error status");
+            return;
+        }
+        enqueue_gif(read_qword(dma_.address));
         dma_.address += 16;
         --dma_.qwords;
     }
     if (dma_.qwords == 0) {
-        dma_.chcr &= ~0x100u;
-        dma_.status |= 4u;
+        if (gif_chain(dma_.chcr)) { finish_gif_packet(dma_); }
+        else { dma_.chcr &= ~0x100u; dma_.status |= 4u; }
     }
 }
 
@@ -486,10 +584,33 @@ void Hardware::restore(const HardwareState& state) {
     require(state.timers[2].hold == 0 && state.timers[3].hold == 0, "invalid absent timer HOLD register");
     require((state.interrupt_status & ~0x7fffu) == 0 && (state.interrupt_mask & ~0x7fffu) == 0,
             "invalid INTC snapshot");
-    require((state.dma.control & ~1u) == 0 && (state.dma.status & ~dma_supported_status) == 0 &&
-            (state.dma.chcr & ~0x101u) == 0 && (state.dma.address & 15u) == 0 &&
-            (state.dma.address & 0x80000000u) == 0 && state.dma.qwords <= 0xffffu &&
-            ((state.dma.chcr & 0x100u) == 0 || (state.dma.chcr & 1u) != 0), "invalid DMA snapshot");
+    const auto& gif = state.dma;
+    require((gif.control & ~1u) == 0 && (gif.status & ~dma_supported_status) == 0 &&
+            gif_chcr_supported(gif.chcr) && gif_ram_address(gif.address) && gif.qwords <= 0xffffu &&
+            gif_ram_address(gif.tag_address) && gif_ram_address(gif.asr[0]) && gif_ram_address(gif.asr[1]),
+            "invalid DMA snapshot");
+    const bool metadata_clear = gif.next_tag == 0 && !gif.packet_end && !gif.packet_irq;
+    switch (gif.phase) {
+    case GifChainPhase::idle:
+        require(metadata_clear && (!gif_chain(gif.chcr) || (gif.chcr & 0x100u) == 0),
+                "invalid idle GIF chain snapshot");
+        break;
+    case GifChainPhase::tag:
+        require(gif_chain(gif.chcr) && gif.qwords == 0 && metadata_clear &&
+                ((gif.chcr & 0x100u) != 0 || (gif.chcr & 0x80000000u) != 0),
+                "invalid GIF tag-fetch snapshot");
+        break;
+    case GifChainPhase::payload: {
+        const auto id = (gif.chcr >> 28u) & 7u;
+        require(gif_chain(gif.chcr) && (gif.chcr & 0x100u) != 0 && gif.qwords != 0 &&
+                gif_ram_address(gif.next_tag) && gif.packet_irq == ((gif.chcr & 0x80000000u) != 0) &&
+                ((id == 0 || id == 7) ? gif.packet_end : (id == 6 || !gif.packet_end)) &&
+                (!(id == 6 && gif.packet_end) || (gif.chcr & 0x30u) == 0),
+                "invalid GIF packet snapshot");
+        break;
+    }
+    default: throw std::invalid_argument("invalid GIF chain phase");
+    }
     const auto& channel = state.vif_dma;
     require((channel.chcr & ~0x101u) == 0 && (channel.address & 0x8000000fu) == 0 &&
             channel.qwords <= 0xffffu && ((channel.chcr & 0x100u) == 0 || (channel.chcr & 1u) != 0) &&

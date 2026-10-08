@@ -147,7 +147,7 @@ void test_rejections() {
     const std::array<std::array<std::uint32_t, 2>, 10> writes{{
         {timer(0) + 0x10, 0x1000}, {timer(1) + 0x10, 0x80000000}, {timer(2) + 0x30, 1},
         {mask, 0x8000}, {stat, 0x8000}, {ctrl, 2}, {dstat, 1},
-        {madr, 1}, {qwc, 0x10000}, {chcr, 0x105}}};
+        {madr, 1}, {qwc, 0x10000}, {chcr, 0x109}}};
     for (const auto& write : writes) {
         const auto before = h.state();
         rejected([&] { h.write(write[0], write[1]); });
