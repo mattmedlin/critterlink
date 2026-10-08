@@ -1191,3 +1191,21 @@ and ASan/UBSan (701.59 seconds).
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs at that
 exact source revision. These checks do not establish firmware boot or milestone
 #4 completion; #19 and #4 remain open.
+
+## GIF RAM source-chain DMA
+
+Source `43e4d764dfa48c01df3cb71529e9deff3aea5c48` adds all eight source tag IDs
+for channel2, TADR/ASR registers, two-level CALL/RET, preloaded CNT and SDK-style
+fresh launches, packet-boundary TIE continuation and complete chain snapshots.
+Tests cover literal packet ordering, zero-count loops, FIFO/DMAE pauses, fault
+cleanup, unsupported-tag atomicity and original guest rendering/INT1 replay.
+The new integration test also passed with a 1 MiB stack limit; its largest
+unoptimized frame is approximately 2.4 KiB.
+
+All 67 local suites passed Debug (373.39 seconds), Release (17.69 seconds) and
+ASan/UBSan (778.58 seconds).
+[GitHub Actions run 37773132137](https://github.com/mattmedlin/critterlink/actions/runs/37773132137)
+passed all eight supported platform/configuration jobs at the exact revision.
+The [chain contract](gif-dma-chain.md) records supported launch forms and
+unmeasured scheduling/restart/visibility policies. This does not establish
+complete DMAC, firmware boot or broad game compatibility. #20 and #4 remain open.
