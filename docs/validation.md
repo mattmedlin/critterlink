@@ -1272,3 +1272,21 @@ passed all eight supported platform/configuration jobs at the exact source.
 The one-pixel schedule, live reads and cancellation are documented policies,
 not cycle-level hardware evidence. Copies do not imply readback, overlapping
 copy behavior or full GS completion. #22 and #4 remain open.
+
+## GS FINISH fences and interrupt delivery
+
+Source `9bb542d602c608552451ef689d0e1081cbbb10df` adds FINISH A+D requests,
+canonical 64-bit CSR/IMR ports and active-low GS edge delivery to INTC0. Pending
+requests fence the current upload/copy, including completion/cancellation before
+replacement, without blocking GIF data needed to complete the operation. Tests
+cover independent masks/acknowledgements, coalescing, wrong-port/width rejection,
+transactional snapshots and an original LD/SD guest interrupt handler with replay.
+
+All 71 local suites passed Debug (420.80 seconds), Release (21.26 seconds) and
+ASan/UBSan (875.70 seconds). The focused Debug FINISH test also passed under a
+1 MiB stack limit (maximum unoptimized frame 2384 bytes).
+[GitHub Actions run 37832635922](https://github.com/mattmedlin/critterlink/actions/runs/37832635922)
+passed all eight supported platform/configuration jobs at the exact revision.
+CSR metadata remains an explicit synthetic placeholder; the always-ready latch,
+local-copy fencing and cancellation ordering are documented profile policies.
+This does not complete GS events, timing or firmware compatibility. #22/#4 stay open.
