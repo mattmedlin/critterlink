@@ -1175,3 +1175,19 @@ Release and ASan/UBSan (11.85, 0.49 and 23.54 seconds).
 passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs for
 `030f4896b5a315b58eb4a6fded63edf0eb8b6094`, including all 64 suites on each
 configuration and the Windows Debug stack regression. #19 and #4 remain open.
+
+## EE timer gates and explicit blank inputs
+
+Source `d1f78c69cbf6dbbff378ebcf6880c11152350301` adds explicit EE HBlank/VBlank
+inputs, external HBlank counting, four gate modes and retained gate state.
+Tests cover all timers, logical divisors and gate sources, interrupt flags,
+mode transitions, invalid snapshots and original guest interrupt/replay paths.
+The hardware plan distinguishes manufacturer register behavior from provisional
+edge, phase and rearm policies. GS-derived clocks and silicon timing remain absent.
+
+All 65 suites passed locally in Debug (340.68 seconds), Release (18.06 seconds)
+and ASan/UBSan (701.59 seconds).
+[GitHub Actions run 37558147438](https://github.com/mattmedlin/critterlink/actions/runs/37558147438)
+passed all eight Windows, Linux and macOS ARM64/x64 Debug/Release jobs at that
+exact source revision. These checks do not establish firmware boot or milestone
+#4 completion; #19 and #4 remain open.
