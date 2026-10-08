@@ -21,8 +21,8 @@ Packet arbitration remains governed by EOP as described on page149.
 | 0xf | No output: NOP |
 
 Other active descriptors reject explicitly. Descriptor0xb is reserved; it is not
-another NOP. Unused descriptor nibbles beyond NREG have no effect. This addition
-does not broaden the separate PACKED single-A+D profile.
+another NOP. Unused descriptor nibbles beyond NREG have no effect. [PACKED](gif-packed.md)
+uses its own descriptor interpretation and lane conversion.
 
 ## Ordering and packet boundaries
 

@@ -9,7 +9,7 @@ namespace {
 void require(bool condition, const char* message) {
     if (!condition) throw std::invalid_argument(message);
 }
-bool reglist_descriptor(unsigned descriptor) {
+bool register_descriptor(unsigned descriptor) {
     return descriptor == 0 || descriptor == 1 || descriptor == 5 || descriptor == 14 || descriptor == 15;
 }
 std::uint64_t active_regs(std::uint64_t regs, unsigned count) {
@@ -94,19 +94,19 @@ void Graphics::restore(const GraphicsState& state) {
             (state.bitbltbuf & ~bitbltbuf_mask) == 0 && (state.trxpos & ~trxpos_mask) == 0 &&
             (state.trxreg & ~trxreg_mask) == 0 && state.trxdir <= 3,
             "invalid GS local-memory or transfer-register snapshot");
-    if (state.mode == GifMode::reglist && state.remaining != 0) {
+    if ((state.mode == GifMode::reglist || state.mode == GifMode::packed) && state.remaining != 0) {
         require(state.nreg >= 1 && state.nreg <= 16 && state.reg_index < state.nreg &&
                 state.remaining <= 32767u * state.nreg - state.reg_index &&
                 (state.remaining + state.reg_index) % state.nreg == 0 &&
-                ((state.nreg & 1u) != 0 || (state.reg_index & 1u) == 0) &&
-                state.regs == active_regs(state.regs, state.nreg), "invalid REGLIST parser snapshot");
+                (state.mode != GifMode::reglist || (state.nreg & 1u) != 0 || (state.reg_index & 1u) == 0) &&
+                state.regs == active_regs(state.regs, state.nreg), "invalid GIF descriptor parser snapshot");
         for (unsigned i = 0; i < state.nreg; ++i) {
-            require(reglist_descriptor(static_cast<unsigned>((state.regs >> (i * 4)) & 15u)),
-                    "unsupported REGLIST snapshot descriptor");
+            require(register_descriptor(static_cast<unsigned>((state.regs >> (i * 4)) & 15u)),
+                    "unsupported GIF snapshot descriptor");
         }
     } else {
         require(state.regs == 0 && state.nreg == 0 && state.reg_index == 0 && state.remaining <= 32767,
-                "invalid inactive REGLIST metadata");
+                "invalid inactive GIF descriptor metadata");
     }
     require((state.imr & ~0x1f00u) == 0 && (!state.finish_pending || (state.transfer.active && !state.transfer.local_readback)),
             "invalid GS FINISH fence or mask snapshot");
@@ -212,16 +212,17 @@ void Graphics::submit_qword(std::array<std::uint32_t, 4> words) {
         const auto mode = (low >> 58) & 3;
         // The same table specifies FLG3 (Disable) performs the IMAGE operation.
         require((low & 0x00003fffffff0000ULL) == 0, "GIF tag reserved bits must be zero");
-        if (mode == 1) {
+        if (mode == 0 || mode == 1) {
             const auto encoded = static_cast<unsigned>((low >> 60) & 15u);
             const auto count = encoded == 0 ? 16u : encoded;
             const auto regs = active_regs(std::uint64_t{words[2]} | (std::uint64_t{words[3]} << 32), count);
             for (unsigned i = 0; i < count; ++i) {
-                require(reglist_descriptor(static_cast<unsigned>((regs >> (i * 4)) & 15u)),
-                        "unsupported REGLIST descriptor");
+                require(register_descriptor(static_cast<unsigned>((regs >> (i * 4)) & 15u)),
+                        "unsupported GIF descriptor");
             }
             // PRE/PRIM are ignored in REGLIST (EE User's Manual v6.0 p159).
-            state_.mode = GifMode::reglist;
+            if (mode == 0 && ((low >> 46) & 1) != 0) { write_register(0, (low >> 47) & 0x7ff); }
+            state_.mode = mode == 0 ? GifMode::packed : GifMode::reglist;
             state_.remaining = loops * count;
             state_.regs = regs;
             state_.nreg = static_cast<std::uint8_t>(count);
@@ -229,12 +230,7 @@ void Graphics::submit_qword(std::array<std::uint32_t, 4> words) {
             state_.gif_eop = (low & 0x8000u) != 0;
             return;
         }
-        if (mode == 0) {
-            require(((low >> 60) & 15) == 1 && words[2] == 14 && words[3] == 0,
-                    "GIF PACKED supports only a single A+D descriptor");
-            if (((low >> 46) & 1) != 0) { write_register(0, (low >> 47) & 0x7ff); }
-        }
-        state_.mode = mode == 0 ? GifMode::packed : GifMode::image;
+        state_.mode = GifMode::image;
         state_.remaining = loops;
         state_.gif_eop = (low & 0x8000u) != 0;
         return;
@@ -253,10 +249,32 @@ void Graphics::submit_qword(std::array<std::uint32_t, 4> words) {
         --state_.remaining;
         return;
     }
-    require((words[2] & 0xffffff00U) == 0 && words[3] == 0,
-            "GIF A+D address must fit eight bits");
-    write_register(static_cast<std::uint8_t>(words[2]), low);
+    const auto descriptor = static_cast<std::uint8_t>((state_.regs >> (state_.reg_index * 4)) & 15u);
+    switch (descriptor) {
+    case 0: write_register(0, words[0] & 0x7ffu); break;
+    case 1: {
+        const auto rgba = (words[0] & 255u) | ((words[1] & 255u) << 8) |
+                          ((words[2] & 255u) << 16) | ((words[3] & 255u) << 24);
+        // ST is unsupported, so GIF's tag-initialized Q remains float 1.0.
+        // A+D/REGLIST writes to GS RGBAQ do not alter that GIF-internal Q.
+        write_register(1, std::uint64_t{rgba} | (std::uint64_t{0x3f800000u} << 32));
+        break;
+    }
+    case 5:
+        require((words[3] & 0x8000u) == 0, "PACKED XYZ2 ADC selects unsupported XYZ3");
+        write_register(5, std::uint64_t{words[0] & 0xffffu} |
+                         (std::uint64_t{words[1] & 0xffffu} << 16) | (std::uint64_t{words[2]} << 32));
+        break;
+    case 14:
+        require((words[2] & 0xffffff00U) == 0 && words[3] == 0, "GIF A+D address must fit eight bits");
+        write_register(static_cast<std::uint8_t>(words[2]), low);
+        break;
+    case 15: break;
+    default: throw std::invalid_argument("unsupported PACKED descriptor");
+    }
     --state_.remaining;
+    state_.reg_index = static_cast<std::uint8_t>((state_.reg_index + 1u) % state_.nreg);
+    if (state_.remaining == 0) { state_.regs = 0; state_.nreg = 0; state_.reg_index = 0; }
 }
 void Graphics::submit_reglist_payload(std::array<std::uint32_t, 4> words) {
     for (unsigned lane = 0; lane < 2 && state_.remaining != 0; ++lane) {
@@ -295,7 +313,10 @@ void Graphics::write_register(std::uint8_t address, std::uint64_t value) {
         state_.primitive_ready = true;
         state_.vertex_pending = false;
         break;
-    case 0x01: state_.rgba = static_cast<std::uint32_t>(value); break;
+    case 0x01:
+        state_.rgba = static_cast<std::uint32_t>(value);
+        state_.rgbaq_q = static_cast<std::uint32_t>(value >> 32);
+        break;
     case 0x18:
         require((value & 0xffff0000ffff0000ULL) == 0 &&
                 (value & 0x0000000f0000000fULL) == 0,

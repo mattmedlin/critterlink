@@ -34,6 +34,7 @@ struct GraphicsState {
     // REGLIST remaining counts 64-bit items; other modes count qwords.
     std::uint64_t regs{};
     std::uint8_t nreg{}, reg_index{};
+    std::uint32_t rgbaq_q{};
     bool operator==(const GraphicsState&) const = default;
 };
 class Graphics {

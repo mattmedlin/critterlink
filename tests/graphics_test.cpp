@@ -39,7 +39,7 @@ int main() {
         auto good = g.state();
         rejected([&] { g.submit_qword({1, 0x14000000, 2, 0}); });
         check(g.state() == good, "unsupported tag mutated state");
-        rejected([&] { g.submit_qword({1, 0x10000000, 5, 0}); });
+        rejected([&] { g.submit_qword({1, 0x10000000, 2, 0}); }); // PACKED ST remains unsupported.
         tag(g, 1); good = g.state();
         rejected([&] { reg(g, 0, 0x16); });
         check(g.state() == good, "unsupported primitive consumed packet");

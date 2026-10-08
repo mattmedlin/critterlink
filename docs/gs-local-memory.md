@@ -58,8 +58,8 @@ host-to-local uploads. Reserved register bits remain strictly checked.
 
 GIF IMAGE modes2 and3 send each qword's lower64 then upper64 through HWREG. PRE,
 PRIM, NREG and REGS are ignored for IMAGE. Zero-NLOOP tags emit nothing and ignore
-the other fields, including PRE. PACKED remains limited to one A+D descriptor;
-REGLIST remains unsupported. IMAGE data is never reinterpreted as A+D register
+the other fields except EOP, including PRE. [PACKED](gif-packed.md) and
+[REGLIST](gif-reglist.md) support their documented register subsets. IMAGE data is never reinterpreted as A+D register
 addresses. A transfer can span IMAGE packets or mix A+D HWREG with IMAGE input.
 Completion is based on rectangle pixels, independent of GIF packet boundaries.
 Extra HWREG data after completion is ignored, including IMAGE padding. HWREG input

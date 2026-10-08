@@ -1,11 +1,12 @@
 # GIF/GS diagnostic slice
 
 `Graphics::submit_qword` consumes one 128-bit word in little-endian word order.
-PACKED GIF tags support one A+D descriptor and at most 32767 loops.
+[PACKED GIF tags](gif-packed.md) support PRIM/RGBAQ/XYZ2/A+D/NOP
+descriptor lists and at most 32767 loops.
 IMAGE modes 2/3 feed upload data; zero-length tags ignore all fields except EOP.
 PRE can write PRIM for nonempty PACKED tags. Hardware retains PATH2/PATH3
-ownership until packet EOP; see [arbitration](vif-direct.md). One PACKED payload
-word writes its low 64 bits to the GS address in the next byte. Invalid or
+ownership until packet EOP; see [arbitration](vif-direct.md). A+D payloads write their low64 bits to the GS address in the next byte;
+other supported PACKED descriptors use their documented lane conversions. Invalid or
 unsupported input throws `std::invalid_argument` without consuming that word.
 The caller must stop execution on this error. A truncated stream remains pending;
 the caller can inspect `state().remaining` to identify incomplete packets.
@@ -24,7 +25,7 @@ display scanout, pixel clock, depth storage, texture sampling, blending, fractio
 VU-to-GIF XGKICK or intermittent GIF arbitration. The privileged interface currently
 provides only the [FINISH/CSR/IMR event subset](gs-finish.md). Reset uses
 explicit diagnostic defaults (full-surface scissor and disabled tests/depth
-writes), not a claim of hardware reset behavior. Q and Z do not affect this
+writes), not a claim of hardware reset behavior. RGBAQ retains Q bits, but Q and Z do not affect this
 untextured, depth-disabled path. Unsupported formats/registers fail rather than
 silently appearing to work. The renderer does not imply PS2 graphics compatibility.
 

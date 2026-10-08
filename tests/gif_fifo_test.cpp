@@ -190,6 +190,7 @@ void snapshot_replay() {
     check(graphics.vertex_pending && graphics.remaining==1,"reset checkpoint missing vertex");
     memory.write(ctrl,4,1);
     auto reset_graphics=graphics; reset_graphics.remaining=0; reset_graphics.gif_eop=false;
+    reset_graphics.regs=0; reset_graphics.nreg=0; reset_graphics.reg_index=0;
     check(memory.hardware().state().gif_fifo.count==0 && memory.hardware().state().gif_owner==0 &&
           memory.hardware().graphics()==reset_graphics,"GIF reset changed GS state");
 
