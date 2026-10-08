@@ -106,7 +106,11 @@ void Memory::write_quadword(std::uint32_t address, const std::array<std::uint64_
             static_cast<std::uint32_t>(value[0] >> 32U), static_cast<std::uint32_t>(value[1]),
             static_cast<std::uint32_t>(value[1] >> 32U)};
         try {
-            if (!hardware_.write_quadword(physical, words)) throw MemoryStall{};
+            if (!hardware_.write_quadword(physical, words)) {
+                throw MemoryStall(physical >= 0x10005000u && physical < 0x10006000u ?
+                    "VIF1 input FIFO is full; retry after device progress" :
+                    "GIF FIFO is full; retry after device progress");
+            }
         } catch (const std::invalid_argument& error) {
             throw MemoryFault(MemoryError::device, Access::store, address, error.what());
         }

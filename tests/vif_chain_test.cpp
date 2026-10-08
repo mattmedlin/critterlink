@@ -166,7 +166,8 @@ void tag_transport_and_parser() {
     bad.start(0x1c5);
     bad.advance(2);
     check(bad.h().stop() && bad.h().vector().payload == 0 &&
-          snap(bad.h())->vif_dma.tag_cursor == 0, "tag lane2 MPG consumed before rejection");
+          snap(bad.h())->vif_input_fifo.count == 1 &&
+          snap(bad.h())->vif_input_fifo.entries[snap(bad.h())->vif_input_fifo.head].cursor == 2, "tag lane2 MPG consumed before rejection");
 }
 
 void stalls_and_dma_pause() {
@@ -188,12 +189,14 @@ void stalls_and_dma_pause() {
         f.start(lane < 2 ? 0x1c5 : 0x185);
         f.advance(2);
         const auto stalled = snap(f.h());
-        check(lane < 2 ? stalled->vif_dma.tag_cursor == lane :
-              stalled->vif_dma.loaded && stalled->vif_dma.cursor == 3, "partial word stall cursor");
+        check(stalled->vif_input_fifo.count == 1 &&
+              stalled->vif_input_fifo.entries[stalled->vif_input_fifo.head].cursor ==
+                  (lane < 2 ? lane + 2 : 3), "partial word stall cursor");
         f.word(lane < 2 ? 0x108 + lane * 4 : 0x11c, 0xffffffff);
         f.h().write(ctrl, 0);
         f.advance(4);
-        check(!f.h().vector().running && (f.h().read(chcr) & 0x100), "DMAE failed to preserve stall");
+        check(!f.h().vector().running && !(f.h().read(chcr) & 0x100) &&
+              snap(f.h())->vif_input_fifo.count == 0, "DMAE blocked accepted VIF input");
         f.h().write(ctrl, 1);
         f.advance(1);
         check(!f.h().stop() && !(f.h().read(chcr) & 0x100), "latched words reread after stall");
@@ -242,11 +245,14 @@ void preload_tte_and_stalled_tie() {
         f.tag(following, 7);
         f.start(tag_stall ? 0x1c5 : 0x185);
         f.advance(2);
-        check((f.h().read(chcr) & 0x100) && !(f.h().read(stat) & 2) &&
-              f.h().read(tadr) == 0x100 && f.h().vector().running,
-              "TIE fired before the final stalled word was accepted");
+        check(!(f.h().read(chcr) & 0x100) && (f.h().read(stat) & 2) &&
+              f.h().read(tadr) == following && f.h().vector().running &&
+              snap(f.h())->vif_input_fifo.count == 1 &&
+              snap(f.h())->vif_transport.wait == critterlink::VifWait::vu,
+              "TIE did not complete at FIFO acceptance before VIF execution");
         f.advance(1);
-        check(!(f.h().read(stat) & 2), "TIE fired during VU end delay");
+        check((f.h().read(stat) & 2) && snap(f.h())->vif_input_fifo.count == 1,
+              "VU end delay lost accepted input or TIE status");
         f.advance(1);
         check(!(f.h().read(chcr) & 0x100) && (f.h().read(stat) & 2) &&
               f.h().read(tadr) == following && f.h().vector().vi[1] == 1,

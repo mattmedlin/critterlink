@@ -137,13 +137,17 @@ void assembler_backpressure_and_flush() {
     const auto stalled = snap(*m);
     check(stalled->hardware.gif_path2_fifo.count == 16 &&
           stalled->hardware.vif_transport.lane == 3 &&
-          stalled->hardware.vif_dma.cursor == 3 && m->read(qwc, 4) == 1,
+          stalled->hardware.vif_input_fifo.count == 1 &&
+          stalled->hardware.vif_input_fifo.entries[stalled->hardware.vif_input_fifo.head].cursor == 3 &&
+          m->read(qwc, 4) == 0,
           "full PATH2 queue did not preserve fourth assembler word");
     rejects([&] { m->write(0x12001040, 8, 1); });
     m->write(0x1000e000, 4, 0);
     m->write(0x10003000, 4, 0);
     m->advance(4);
-    check(m->read(qwc, 4) == 1, "DMAE pause consumed pending DIRECT word");
+    check(m->read(qwc, 4) == 0 && snap(*m)->hardware.vif_input_fifo.count == 0 &&
+          snap(*m)->hardware.vif_transport.direct_remaining == 0,
+          "DMAE pause blocked accepted DIRECT input");
     m->write(0x1000e000, 4, 1);
     m->advance(20);
     const auto done = snap(*m);
@@ -164,11 +168,14 @@ void assembler_backpressure_and_flush() {
     single(*f, 0x11ffffff);
     check(f->read(qwc, 4) == 0, "FLUSH incorrectly waited independent PATH3");
     single(*f, 0x13ffffff);
-    check(f->read(qwc, 4) == 1 && snap(f->hardware())->vif_transport.wait == VifWait::gif,
+    check(f->read(qwc, 4) == 0 && snap(f->hardware())->vif_input_fifo.count == 1 &&
+          snap(f->hardware())->vif_transport.wait == VifWait::gif,
           "FLUSHA ignored masked PATH3 request");
     const auto waiting = snap(*f);
     f->advance(4);
-    check(f->read(qwc, 4) == 1, "masked FLUSHA busy-loop completed spuriously");
+    check(snap(f->hardware())->vif_input_fifo.count == 1 &&
+          snap(f->hardware())->vif_transport.wait == VifWait::gif,
+          "masked FLUSHA busy-loop completed spuriously");
     f->restore(*waiting);
 }
 

@@ -107,8 +107,9 @@ a cold diagnostic run.
 
 [DIRECT/DIRECTHL and synchronization](vif-direct.md) feed a separate PATH2
 queue. GIF ownership persists until packet EOP; VIF masking and queue waits
-preserve ordering and replay. Forward CPU VIF input, PATH1 and intermittent
-arbitration remain unfinished.
+preserve ordering and replay. The [shared CPU/DMA VIF input](vif-cpu-fifo.md)
+accepts atomic CPU quadwords and decouples DMA completion from command execution.
+PATH1 and intermittent arbitration remain unfinished.
 
 ## Timer, INTC and DMA profile
 
@@ -140,11 +141,10 @@ GIF qword remains at the FIFO head and stops decoding; DMA may already have
 advanced because its transfer completes when data enters the FIFO. Empty transfers
 complete on the next enabled tick. A DMA boundary does not discard a partial
 GIF packet. INT1 reflects enabled channel1/2/5/6 completion or a bus error.
-VIF1 DMA latches the source qword before consuming words. On a stall the current
-word, address and count remain pending. D_CTRL pauses delivery; VU execution
-continues. Stopping CHCR discards that channel's pending qword while retaining
-already-consumed VIF state; callers must provide the remaining stream when
-restarting. This is a diagnostic transfer policy, not FIFO/bus cycle emulation.
+VIF1 DMA copies source input into a shared FIFO. On a consumer stall the current
+FIFO word remains pending, while DMA can continue until the queue fills. D_CTRL
+pauses DMA production; queued VIF input and VU execution continue. Stopping CHCR
+retains accepted input and parser state; unaccepted source data is not delivered. This is a diagnostic transfer policy, not FIFO/bus cycle emulation.
 
 Missing: GS-driven video clocks, independent timer phase/gate conformance, remaining SBUS sources/control modes, real-time frequencies,
 other DMA channels, SIF chains, GIF tag forwarding, stall control/MFIFO/interleave modes,

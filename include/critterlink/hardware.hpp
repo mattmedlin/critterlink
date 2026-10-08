@@ -37,6 +37,7 @@ struct GifDmaState {
 enum class VifChainPhase { idle, tag, tag_words, payload };
 struct VifDmaState {
     std::uint32_t chcr{}, address{}, qwords{};
+    // Legacy transport fields remain canonical zero; accepted input lives in the shared FIFO.
     std::array<std::uint32_t, 4> pending{};
     std::uint8_t cursor{};
     bool loaded{};
@@ -68,6 +69,19 @@ struct VifTransportState {
     VifWait wait{VifWait::none};
     bool operator==(const VifTransportState&) const = default;
 };
+enum class VifInputSource { cpu, dma, tte };
+struct VifInputEntry {
+    std::array<std::uint32_t, 4> words{};
+    std::uint32_t address{};
+    std::uint8_t cursor{};
+    VifInputSource source{VifInputSource::cpu};
+    bool operator==(const VifInputEntry&) const = default;
+};
+struct VifInputFifoState {
+    std::array<VifInputEntry, 16> entries{};
+    std::uint8_t head{}, count{};
+    bool operator==(const VifInputFifoState&) const = default;
+};
 struct HardwareState {
     SchedulerState scheduler;
     std::array<TimerState, 4> timers{};
@@ -96,6 +110,7 @@ struct HardwareState {
     std::uint8_t gif_owner{};
     bool path3_masked{};
     VifTransportState vif_transport;
+    VifInputFifoState vif_input_fifo;
     bool operator==(const HardwareState&) const = default;
 };
 
@@ -152,6 +167,8 @@ private:
     std::array<std::uint32_t, 4> pop_readback();
     void tick_dma(std::span<const std::uint8_t> ram);
     void tick_gif();
+    void tick_vif_input();
+    bool enqueue_vif(VifInputEntry entry);
     bool submit_vif_word(std::uint32_t word, unsigned physical_word, bool tag_word);
     bool enqueue_gif(std::array<std::uint32_t, 4> words);
     Scheduler scheduler_;
@@ -179,6 +196,7 @@ private:
     std::uint8_t gif_owner_{};
     bool path3_masked_{};
     VifTransportState vif_transport_;
+    VifInputFifoState vif_input_fifo_;
     std::optional<std::string> stop_;
 };
 

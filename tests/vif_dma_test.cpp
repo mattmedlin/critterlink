@@ -71,27 +71,28 @@ void test_stall_and_resume() {
     critterlink::Hardware h;
     h.write(ctrl, 1); start(h, 2); h.advance(2, ram);
     const auto snapshot = h.state();
-    check(!h.stop() && snapshot.vif_dma.loaded && snapshot.vif_dma.cursor == 3 &&
-          h.read(madr) == 16 && h.read(qwc) == 1 && h.vector().running,
+    check(!h.stop() && snapshot.vif_input_fifo.count == 1 &&
+          snapshot.vif_input_fifo.entries[snapshot.vif_input_fifo.head].cursor == 3 &&
+          h.read(madr) == 32 && h.read(qwc) == 0 && h.vector().running,
           "FLUSHE stalls within latched qword after MSCAL");
     // The latched qword must survive a host RAM change and snapshot restoration.
     ram[31] = 0x7f;
     h.advance(1, ram);
-    check(h.state().vif_dma.cursor == 3 && h.vector().running, "end bit delay still stalls FLUSHE");
+    check(h.state().vif_input_fifo.entries[h.state().vif_input_fifo.head].cursor == 3 && h.vector().running, "end bit delay still stalls FLUSHE");
     h.advance(1, ram);
     check(!h.stop() && !h.vector().running && h.read(qwc) == 0, "FLUSHE resumes after end delay");
     const auto final = h.state();
     h.restore(snapshot); h.advance(2, ram);
     check(h.state() == final, "midword stalled DMA restore replay");
     h.restore(snapshot); h.write(ctrl, 0); h.advance(2, ram);
-    check(!h.vector().running && h.read(qwc) == 1 && h.state().vif_dma.cursor == 3,
-          "disabled DMA preserves partial qword while VU continues");
+    check(!h.vector().running && h.read(qwc) == 0 && h.state().vif_input_fifo.count == 0,
+          "disabled DMA does not block accepted VIF input");
     h.write(ctrl, 1); h.advance(1, ram);
     check(!h.stop() && h.read(qwc) == 0, "reenabled DMA resumes preserved word");
     h.restore(snapshot); h.write(chcr, 0);
-    check(!h.state().vif_dma.loaded && h.state().vif_dma.cursor == 0 && h.vector().running,
-          "DMA stop discards buffer and retains VU execution");
-    // Explicitly replace the cancelled stream with its unconsumed continuation.
+    check(h.state().vif_input_fifo == snapshot.vif_input_fifo && h.vector().running,
+          "DMA stop retains accepted input and VU execution");
+    // New DMA input follows the already accepted FLUSHE without replaying it.
     ram[35] = 0x10; // FLUSHE, then three NOPs.
     h.write(madr, 32); h.write(qwc, 1); h.write(chcr, 0x101);
     h.advance(2, ram);
@@ -126,13 +127,14 @@ void test_rejections() {
     std::array<std::uint8_t, 16> ram{};
     ram[3] = 0x7f;
     unsupported.write(ctrl, 1); start(unsupported, 1); unsupported.advance(1, ram);
-    check(unsupported.stop().has_value() && unsupported.read(qwc) == 1 &&
-          unsupported.state().vif_dma.cursor == 0, "unsupported VIF command consumed");
+    check(unsupported.stop().has_value() && unsupported.read(qwc) == 0 && unsupported.state().vif_input_fifo.count == 1 &&
+          unsupported.state().vif_input_fifo.entries[unsupported.state().vif_input_fifo.head].cursor == 0, "unsupported VIF command consumed");
     critterlink::Hardware unaligned;
     ram = {}; ram[2] = 2; ram[3] = 0x4a; // MPG at word 0 would put payload at byte 4.
     unaligned.write(ctrl, 1); start(unaligned, 1); unaligned.advance(1, ram);
     check(unaligned.stop().has_value() && unaligned.vector().payload == 0 &&
-          unaligned.state().vif_dma.cursor == 0, "misaligned MPG must reject before consuming command");
+          unaligned.state().vif_input_fifo.count == 1 &&
+          unaligned.state().vif_input_fifo.entries[unaligned.state().vif_input_fifo.head].cursor == 0, "misaligned MPG must reject before consuming command");
     critterlink::Hardware bad_micro;
     auto invalid_program = bad_micro.state();
     invalid_program.vector.running = true;

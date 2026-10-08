@@ -172,7 +172,7 @@ void Hardware::write_gs(std::uint32_t address, std::uint64_t value) {
         require((vif_dma_.chcr & 0x100u) == 0 && (dma_.chcr & 0x100u) == 0,
                 "BUSDIR requires idle DMA channels");
         if (reverse) {
-            require(vif_fdr_ && gif_fifo_.count == 0 && gif_path2_fifo_.count == 0 && gif_owner_ == 0 &&
+            require(vif_fdr_ && vif_input_fifo_.count == 0 && gif_fifo_.count == 0 && gif_path2_fifo_.count == 0 && gif_owner_ == 0 &&
                     vif_transport_.direct_remaining == 0 && graphics_.state().remaining == 0 &&
                     !vif_dma_.loaded && vector_.state().payload == 0 && !vector_.busy() && (!graphics_.state().transfer.active || graphics_.has_readback()),
                     "BUSDIR reversal requires an idle forward path and FDR");
@@ -199,7 +199,7 @@ std::uint32_t Hardware::read(std::uint32_t address) const {
             (vif_transport_.direct_remaining != 0 ? (vif_transport_.lane != 0 ? 3u : 1u) :
              (vector_.state().payload != 0 ? 3u : 0u));
         return vps | (wait == VifWait::vu ? 4u : 0u) | (wait == VifWait::gif ? 8u : 0u) |
-               (vif_fdr_ ? 0x800000u : 0u) | (std::uint32_t{vif_readback_fifo_.count} << 24u);
+               (vif_fdr_ ? 0x800000u : 0u) | (std::uint32_t{vif_fdr_ ? vif_readback_fifo_.count : vif_input_fifo_.count} << 24u);
     }
     if (Sif::ee_address(address)) { return sif_.ee_read32(address); }
     if (address >= timer_base && address < timer_base + 0x2000) {
@@ -276,7 +276,7 @@ void Hardware::write(std::uint32_t address, std::uint32_t value) {
         require((value & ~0x800000u) == 0, "unsupported VIF1_STAT control bits");
         const bool fdr = (value & 0x800000u) != 0;
         if (fdr == vif_fdr_) return;
-        require((vif_dma_.chcr & 0x100u) == 0 && (dma_.chcr & 0x100u) == 0 && vif_readback_fifo_.count == 0 &&
+        require((vif_dma_.chcr & 0x100u) == 0 && (dma_.chcr & 0x100u) == 0 && vif_input_fifo_.count == 0 && vif_readback_fifo_.count == 0 &&
                 (!gs_busdir_ || graphics_.remaining_readback_qwords() == 0),
                 "FDR cannot change during an unfinished reverse transfer");
         vif_fdr_ = fdr;
@@ -356,7 +356,7 @@ void Hardware::write(std::uint32_t address, std::uint32_t value) {
         }
         next.chcr = value;
         vif_dma_ = next;
-        if (value == 0) { vif_transport_.wait = VifWait::none; }
+
         return;
     }
     case d2_madr:
@@ -415,8 +415,12 @@ bool Hardware::enqueue_gif(std::array<std::uint32_t, 4> words) {
 }
 
 bool Hardware::write_quadword(std::uint32_t address, std::array<std::uint32_t, 4> words) {
+    if (address >= 0x10005000u && address < 0x10006000u && (address & 15u) == 0) {
+        require(!stop_ && !gs_busdir_ && !vif_fdr_, "VIF1 FIFO writes require a running forward path");
+        return enqueue_vif({words, address, 0, VifInputSource::cpu});
+    }
     require(address >= 0x10006000U && address < 0x10007000U && (address & 15U) == 0,
-            "quadword MMIO writes support only GIF_FIFO");
+            "quadword MMIO writes support only GIF_FIFO and VIF1_FIFO");
     require(!gs_busdir_, "GIF FIFO writes blocked by BUSDIR");
     return enqueue_gif(words);
 }
@@ -466,6 +470,30 @@ void Hardware::tick_gif() {
     fifo.words[fifo.head] = {};
     fifo.head = static_cast<std::uint8_t>((fifo.head + 1U) % 16U);
     --fifo.count;
+}
+
+bool Hardware::enqueue_vif(VifInputEntry entry) {
+    if (vif_input_fifo_.count == 16) return false;
+    const auto tail = (unsigned{vif_input_fifo_.head} + vif_input_fifo_.count) % 16u;
+    vif_input_fifo_.entries[tail] = entry;
+    ++vif_input_fifo_.count;
+    return true;
+}
+void Hardware::tick_vif_input() {
+    if (gs_busdir_ || vif_fdr_ || vif_input_fifo_.count == 0) return;
+    auto& entry = vif_input_fifo_.entries[vif_input_fifo_.head];
+    try {
+        while (entry.cursor < 4) {
+            if (!submit_vif_word(entry.words[entry.cursor], entry.cursor, entry.source == VifInputSource::tte)) return;
+            ++entry.cursor;
+        }
+    } catch (const std::invalid_argument& error) {
+        stop_ = std::string("VIF1 input at address ") + std::to_string(entry.address) + ": " + error.what();
+        return;
+    }
+    entry = {};
+    vif_input_fifo_.head = static_cast<std::uint8_t>((vif_input_fifo_.head + 1u) % 16u);
+    --vif_input_fifo_.count;
 }
 
 bool Hardware::submit_vif_word(std::uint32_t word, unsigned physical_word, bool tag_word) {
@@ -586,7 +614,6 @@ void Hardware::tick_vif_dma(std::span<std::uint8_t> ram) {
         channel.chcr &= ~0x100u;
         dma_.status |= 0x8002u;
         clear_vif_packet(channel);
-        vif_transport_.wait = VifWait::none;
         stop_ = reason;
     };
     const auto in_ram = [&](std::uint32_t address) {
@@ -617,6 +644,7 @@ void Hardware::tick_vif_dma(std::span<std::uint8_t> ram) {
         if (finish_vif_packet(channel)) { dma_.status |= 2u; }
     };
     if (source_chain_mode(channel.chcr) && channel.phase == VifChainPhase::tag) {
+        if (vif_input_fifo_.count == 16) return;
         if (!in_ram(channel.tag_address)) {
             bus_error("VIF1 DMA tag outside RAM; transfer stopped with bus-error status");
             return;
@@ -656,45 +684,22 @@ void Hardware::tick_vif_dma(std::span<std::uint8_t> ram) {
         return;
     }
     if (channel.phase == VifChainPhase::tag_words) {
-        try {
-            while (channel.tag_cursor < 2) {
-                if (!submit_vif_word(channel.tag_words[channel.tag_cursor], 2 + channel.tag_cursor, true)) { return; }
-                ++channel.tag_cursor;
-            }
-        } catch (const std::invalid_argument& error) {
-            stop_ = std::string("VIF1 at DMA tag address ") + std::to_string(channel.tag_address) + ": " + error.what();
-            return;
-        }
+        if (!enqueue_vif({{0, 0, channel.tag_words[0], channel.tag_words[1]}, channel.tag_address,
+                          2, VifInputSource::tte})) return;
         channel.tag_words = {};
-        channel.tag_cursor = 0;
         channel.phase = VifChainPhase::payload;
         if (channel.qwords == 0) { finish_packet(); }
         return;
     }
     if (channel.qwords != 0) {
-        if (!channel.loaded) {
-            if (!in_ram(channel.address)) {
-                bus_error("VIF1 DMA source outside RAM; transfer stopped with bus-error status");
-                return;
-            }
-            channel.pending = read_qword(channel.address);
-            channel.loaded = true;
-            channel.cursor = 0;
-        }
-        try {
-            while (channel.cursor < 4) {
-                if (!submit_vif_word(channel.pending[channel.cursor], channel.cursor, false)) { return; }
-                ++channel.cursor;
-            }
-        } catch (const std::invalid_argument& error) {
-            stop_ = std::string("VIF1 at DMA address ") + std::to_string(channel.address) + ": " + error.what();
+        if (vif_input_fifo_.count == 16) return;
+        if (!in_ram(channel.address)) {
+            bus_error("VIF1 DMA source outside RAM; transfer stopped with bus-error status");
             return;
         }
+        enqueue_vif({read_qword(channel.address), channel.address, 0, VifInputSource::dma});
         channel.address += 16;
         --channel.qwords;
-        channel.loaded = false;
-        channel.cursor = 0;
-        channel.pending = {};
     }
     if (channel.qwords == 0) {
         if (source_chain_mode(channel.chcr)) { finish_packet(); }
@@ -835,6 +840,7 @@ void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram, std::sp
         sample_gs_interrupt();
         if (!stop_) { tick_readback(); }
         if (!stop_) { tick_vif_dma(ram); }
+        if (!stop_) { tick_vif_input(); }
         if (!stop_) { tick_dma(ram); }
         if (!stop_) { tick_gif(); }
         sample_gs_interrupt();
@@ -847,7 +853,7 @@ void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram, std::sp
 }
 
 HardwareState Hardware::state() const {
-    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state(), sio2_.state(), cdvd_.state(), gif_fifo_, iop_intc_.state(), iop_timers_.state(), sbus_interrupt_high_, sbus_external_high_, iop_sbus_control_, ee_hblank_, ee_vblank_, gs_interrupt_high_, vif_readback_fifo_, vif_fdr_, gs_busdir_, gif_path2_fifo_, gif_owner_, path3_masked_, vif_transport_};
+    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state(), sio2_.state(), cdvd_.state(), gif_fifo_, iop_intc_.state(), iop_timers_.state(), sbus_interrupt_high_, sbus_external_high_, iop_sbus_control_, ee_hblank_, ee_vblank_, gs_interrupt_high_, vif_readback_fifo_, vif_fdr_, gs_busdir_, gif_path2_fifo_, gif_owner_, path3_masked_, vif_transport_, vif_input_fifo_};
 }
 
 void Hardware::restore(const HardwareState& state) {
@@ -905,9 +911,8 @@ void Hardware::restore(const HardwareState& state) {
     const auto& channel = state.vif_dma;
     require(vif_chcr_supported(channel.chcr) && aligned_ram_address(channel.address) &&
             aligned_ram_address(channel.tag_address) && aligned_ram_address(channel.asr[0]) &&
-            aligned_ram_address(channel.asr[1]) && channel.qwords <= 0xffffu && channel.cursor < 4 &&
-            (!channel.loaded || ((channel.chcr & 0x100u) != 0 && channel.qwords != 0)) &&
-            (channel.loaded || (channel.cursor == 0 && channel.pending == std::array<std::uint32_t, 4>{})),
+            aligned_ram_address(channel.asr[1]) && channel.qwords <= 0xffffu && channel.cursor == 0 &&
+            !channel.loaded && channel.pending == std::array<std::uint32_t, 4>{} && channel.tag_cursor == 0,
             "invalid VIF1 DMA snapshot");
     const bool vif_metadata_clear = channel.next_tag == 0 && !channel.packet_end && !channel.packet_irq;
     const bool vif_tags_clear = channel.tag_cursor == 0 && channel.tag_words == std::array<std::uint32_t, 2>{};
@@ -932,7 +937,7 @@ void Hardware::restore(const HardwareState& state) {
                 (!(id == 6 && channel.packet_end) || (channel.chcr & 0x30u) == 0),
                 "invalid VIF1 packet snapshot");
         if (channel.phase == VifChainPhase::tag_words) {
-            require((channel.chcr & 0x40u) != 0 && channel.tag_cursor < 2 && !channel.loaded,
+            require((channel.chcr & 0x40u) != 0 && channel.tag_cursor == 0 && !channel.loaded,
                     "invalid VIF1 tag transport snapshot");
         } else { require(channel.qwords != 0 && vif_tags_clear, "invalid VIF1 payload snapshot"); }
         break;
@@ -965,7 +970,7 @@ void Hardware::restore(const HardwareState& state) {
     require(reverse.count == 0 || (state.gs_busdir && state.vif_fdr && replacement.graphics_.has_readback()),
             "reverse FIFO requires an active reverse bus");
     if (state.gs_busdir) {
-        require(state.gif_fifo.count == 0 && state.gif_path2_fifo.count == 0 && state.gif_owner == 0 &&
+        require(state.vif_input_fifo.count == 0 && state.gif_fifo.count == 0 && state.gif_path2_fifo.count == 0 && state.gif_owner == 0 &&
                 state.vif_transport.direct_remaining == 0 && state.graphics.remaining == 0 && (gif.chcr & 0x100u) == 0 &&
                 !channel.loaded && state.vector.payload == 0 && !state.vector.running && (!state.graphics.transfer.active || replacement.graphics_.has_readback()) &&
                 (state.vif_fdr || (remaining == 0 && reverse.count == 0)), "invalid reverse bus snapshot");
@@ -1004,8 +1009,25 @@ void Hardware::restore(const HardwareState& state) {
             "invalid VIF wait reason");
     require(transport.direct_remaining == 0 || transport.wait == VifWait::none ||
             (transport.wait == VifWait::gif && transport.lane == 3), "invalid DIRECT wait state");
-    require(transport.wait == VifWait::none || ((channel.chcr & 0x101u) == 0x101u &&
-            (channel.loaded || channel.phase == VifChainPhase::tag_words)), "VIF wait requires a retained command");
+    const auto& input = state.vif_input_fifo;
+    require(input.head < 16 && input.count <= 16, "invalid forward VIF FIFO bounds");
+    require((!state.vif_fdr && !state.gs_busdir) || input.count == 0, "forward VIF input on reverse path");
+    for (unsigned i = 0; i < 16; ++i) {
+        const auto& entry = input.entries[(unsigned{input.head} + i) % 16u];
+        if (i >= input.count) { require(entry == VifInputEntry{}, "invalid unused forward VIF FIFO entry"); continue; }
+        require(entry.source == VifInputSource::cpu || entry.source == VifInputSource::dma ||
+                entry.source == VifInputSource::tte, "invalid VIF input provenance");
+        const unsigned first = entry.source == VifInputSource::tte ? 2u : 0u;
+        require(entry.cursor >= first && entry.cursor < 4 && (i == 0 || entry.cursor == first),
+                "invalid VIF input cursor");
+        if (entry.source == VifInputSource::cpu) {
+            require(entry.address >= 0x10005000u && entry.address < 0x10006000u && (entry.address & 15u) == 0,
+                    "invalid CPU VIF input address");
+        } else { require(aligned_ram_address(entry.address), "invalid DMA VIF input address"); }
+        require(first == 0 || (entry.words[0] == 0 && entry.words[1] == 0), "invalid TTE input padding");
+    }
+    require(transport.wait == VifWait::none || input.count != 0, "VIF wait requires an input head");
+    replacement.vif_input_fifo_ = input;
     replacement.gif_path2_fifo_ = state.gif_path2_fifo;
     replacement.gif_owner_ = state.gif_owner;
     replacement.path3_masked_ = state.path3_masked;

@@ -63,14 +63,15 @@ void prepare_vector_demo(System& system) {
 VectorDemoResult run_vector_demo() {
     System system;
     prepare_vector_demo(system);
-    // A FLUSHE command holds a partly consumed DMA qword while VU1 executes.
-    for (unsigned n = 0; n < 128 && !system.memory().hardware().state().vif_dma.loaded; ++n) {
+    // A FLUSHE command holds a partly consumed input qword while VU1 executes.
+    for (unsigned n = 0; n < 128 && system.memory().hardware().state().vif_transport.wait != VifWait::vu; ++n) {
         require(system.run(1) == RunResult{1, true}, "vector fixture stopped before FLUSHE checkpoint");
     }
-    require(system.memory().hardware().state().vif_dma.loaded, "vector fixture did not reach FLUSHE checkpoint");
+    require(system.memory().hardware().state().vif_transport.wait == VifWait::vu, "vector fixture did not reach FLUSHE checkpoint");
     require(system.run(3) == RunResult{3, true}, "vector fixture stopped while VU1 was running");
     const auto checkpoint = system.state();
-    require(checkpoint.memory.hardware.vif_dma.loaded && checkpoint.memory.hardware.vector.running &&
+    require(checkpoint.memory.hardware.vif_input_fifo.count != 0 &&
+            checkpoint.memory.hardware.vif_transport.wait == VifWait::vu && checkpoint.memory.hardware.vector.running &&
             checkpoint.memory.hardware.vector.pc == 3, "vector checkpoint was not mid-VU1 and mid-FLUSHE");
     std::vector<InstructionTrace> first, second;
     require(system.run(64, &first) == RunResult{64, true}, "vector fixture stopped after checkpoint");

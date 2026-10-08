@@ -3,7 +3,7 @@
 VIF1 forward DMA now accepts DIRECT/DIRECTHL, MSKPATH3 and the modeled
 FLUSHE/FLUSH/FLUSHA commands. Separate PATH2 and PATH3 queues feed the existing GS
 packet decoder. This is a bounded transport profile, not complete VIF/GIF timing
-or support for the unmodified PS2SDK screenshot helper.
+or proof of complete SDK runtime compatibility.
 
 ## Primary evidence
 
@@ -15,8 +15,8 @@ page151, and GIF_CTRL/GIF_STAT on pages162–164
 The pinned PS2SDK
 [`screenshot.c`](https://github.com/ps2dev/ps2sdk/blob/2c670453980fcc3fe46ead6399b730b12c8556eb/ee/debug/src/screenshot.c)
 corroborates the mask, flush, DIRECT setup and reverse-readback sequence. It also
-uses a CPU VIF1 FIFO write to unmask PATH3; that forward CPU input remains
-unsupported here.
+uses a CPU VIF1 FIFO write to unmask PATH3; that access is supported by the
+[shared forward input queue](vif-cpu-fifo.md).
 
 ## Commands and input
 
@@ -34,8 +34,8 @@ The command interrupt bit remains unsupported and rejects explicitly. Flushes
 synchronize the modeled VU/GIF transport, not asynchronous GS rendering or local
 copy completion; use the separate FINISH mechanism for its supported fence.
 
-Commands arrive through normal or source-chain channel1 DMA, including supported
-TTE tag words. DIRECT must occupy physical qword word3 so that its following
+Commands arrive through CPU quadword stores or normal/source-chain channel1 DMA,
+including supported TTE tag words. Both producers use one ordered input queue. DIRECT must occupy physical qword word3 so that its following
 payload is 128-bit aligned. A DIRECT command in TTE tag word3 is supported.
 Malformed alignment rejects rather than inserting padding. Subsequent TTE tag
 words interposed inside an unfinished DIRECT payload reject explicitly; ordinary
@@ -44,7 +44,8 @@ payload continuation across DMA boundaries retains assembly state.
 While a VU upload or DIRECT payload is active, words resembling commands remain
 payload. DIRECT assembles four words before enqueueing a qword. If the PATH2
 queue is full, the fourth input word is retried; the first three remain retained,
-and neither the count nor DMA cursor advances for the rejected word. DMA abort
+and neither the DIRECT count nor input-head cursor advances for the rejected word.
+DMA may already have completed delivery into the input queue. DMA abort
 retains accepted VIF transport state, so software restarting an interrupted
 stream must supply its remaining data rather than replaying accepted words.
 
@@ -82,10 +83,10 @@ pipeline observations.
 
 VIF1_STAT derives VPS bits1:0 from command/payload progress and retains VU/GIF
 wait reasons in VEW bit2 and VGW bit3. Existing reverse-readback FDR bit23 and
-FQC bits28:24 remain available. Forward FIFO occupancy is not fully modeled by
-those readback count bits.
+FQC bits28:24 remain available. FQC selects the forward input count when FDR is clear and reverse count when set;
+TTE half-entry occupancy follows the documented conservative queue policy.
 
-BUSDIR reversal requires no pending DIRECT payload, PATH2/PATH3 queued data or
+BUSDIR reversal requires no forward VIF input, pending DIRECT payload, PATH2/PATH3 queued data or
 packet owner, in addition to the existing DMA, VU and readback guards. It cannot
 silently discard forward work. Reverse operation suppresses forward delivery.
 Snapshots preserve queue contents and indices, EOP, owner, mask, DIRECT count,
@@ -94,9 +95,9 @@ owner consistency, assembly bounds and retained waits before replacing state.
 
 ## Remaining gaps
 
-Forward CPU VIF1 FIFO writes, PATH1/XGKICK, GIF_MODE masks, intermittent IMAGE
+PATH1/XGKICK, GIF_MODE masks, intermittent IMAGE
 arbitration, VIF interrupts and the full VIF register/command set remain
 unsupported. Existing GS packet and pixel-format restrictions still apply.
-The SDK-style setup prefix can run through supported DMA, but the complete
-unmodified screenshot helper requires the missing CPU VIF input path. This
-increment does not complete milestone #4.
+Original guests cover SDK-style DMA setup and CPU unmask after readback. Full
+unmodified SDK runtime compatibility has not been demonstrated. This increment
+does not complete milestone #4.

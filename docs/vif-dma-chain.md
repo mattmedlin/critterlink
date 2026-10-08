@@ -30,13 +30,13 @@ A tag-fetch tick reads and validates all16 bytes before committing its packet
 and stack effects. With TTE=0 its upper half is ignored. With TTE=1 the upper two
 words are latched in snapshot state and delivered on a subsequent tick, in order.
 They do not advance MADR or decrement QWC. Even a zero-QWC packet must finish
-its tag words before completing. Preloaded CNT data has no fetched tag to
+enqueueing its tag words before completing. Preloaded CNT data has no fetched tag to
 forward and goes directly through the data path, including with TTE enabled.
 
-Payload qwords retain the existing complete-qword latch and next-word cursor.
-A VIF stall preserves every accepted word and retries only the next word. The
-last word must be accepted before MADR/QWC advance or a packet completion/TIE
-interrupt occurs. DMA completion does not imply VU execution has finished.
+Payload qwords and TTE halves enter the [shared VIF input queue](vif-cpu-fifo.md).
+A VIF stall preserves the queue head and retries only its next word. MADR/QWC
+and packet completion/TIE advance on FIFO acceptance, before command execution
+when the consumer stalls. DMA completion does not imply VIF or VU completion.
 
 The VIF parser survives DMA tag boundaries. Tag upper words can continue an
 already active MPG/UNPACK payload; they are not unconditionally commands. MPG
@@ -53,14 +53,14 @@ fresh form. An interrupted packet's stack effects and upper words are never
 applied again on continuation. Terminal IRQ packets end rather than creating a
 resumable TIE boundary.
 
-DMAE pauses all chain cursors while VU execution continues independently.
-CHCR=0 abort clears pending tag/data transport but preserves already consumed
-VIF parser state. Physical D_ENABLEW suspension is not implemented. Out-of-RAM
+DMAE pauses the chain producer while queued VIF input and VU execution continue
+independently. CHCR=0 abort clears unaccepted channel transport but preserves
+already queued input and VIF parser state. Physical D_ENABLEW suspension is not implemented. Out-of-RAM
 access sets CIS1/BEIS and clears STR and pending transport; unsupported tag or
 VIF capabilities stop diagnostically without fabricating bus-error status.
 
 Snapshot validation covers tag/data phases, active state, stack, address/count,
-latched upper words, per-word progress and pending packet outcomes before
+latched upper words, shared input progress and pending packet outcomes before
 changing the destination. A partial VIF payload may legitimately remain after
 its DMA packet ends.
 
