@@ -1228,3 +1228,28 @@ passed all eight supported platform/configuration jobs at the final revision.
 The [VIF chain contract](vif-dma-chain.md) separates primary transport evidence
 from scheduling/visibility policies. SIF chains, broader VIF/VU execution,
 physical timing and other DMAC gaps remain; #20 and #4 remain open.
+
+## Shared GS local memory and PSMCT32 upload
+
+Production `9c76f249564712e9e21fec65bd7e15e5d2776a35` adds 4 MiB swizzled
+PSMCT32 memory shared by uploads and the fixed sprite renderer, IMAGE/HWREG
+transport, latched parameters and validated transfer snapshots. Literal address
+vectors come from the manufacturer layout diagram. Tests cover raw offsets,
+base-pointer carry, padding, ignored tag fields, FIFO reset isolation, sprite
+masks and original guest upload/interrupt replay.
+
+All 69 local suites passed Debug (389.25 seconds), Release (10.73 seconds) and
+ASan/UBSan (813.12 seconds). Windows Debug CI then exposed SegFaults in three
+older integration tests. `ccde169` moves their fixtures and snapshot temporaries
+to the heap without changing production behavior or removing checks. Measured
+unoptimized main frames fell from approximately 643–645 KiB to 960–1248 bytes.
+The Windows failures did not reproduce locally under a 1 MiB stack limit; the
+revised tests passed that limit (26.92 seconds) and focused ASan/UBSan (55.14
+seconds) against an isolated copy of the unchanged upload production source.
+
+[GitHub Actions run 37827083738](https://github.com/mattmedlin/critterlink/actions/runs/37827083738)
+passed all eight supported configurations at final revision
+`ccde169146acb9a8a3239d7fccea8f7c0fda37f9`, including the three Windows regressions.
+The GS transfer test also passed the 1 MiB stack limit with a 2608-byte maximum
+unoptimized frame. Format, wrap, rendering and timing limitations remain explicit
+in [GS local memory](gs-local-memory.md). #22 and #4 remain open.
