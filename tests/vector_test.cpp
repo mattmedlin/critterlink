@@ -17,7 +17,7 @@ void transfers() {
     require(vu.submit_word(9)); require(vu.submit_word(11)); require(vu.submit_word(13));
     require(vu.state()==complete);
     require(vu.state().data[1023]==std::array<std::uint32_t,4>{7,9,11,13});
-    for (auto bad : {0x01000201U,0xec010000U,0x6c024000U,0x6c0203ffU,0x4a0207ffU,0x17000000U,0x14000800U}) {
+    for (auto bad : {0x01000201U,0xec010000U,0x6c028000U,0x6c0203ffU,0x4a0207ffU,0x17000000U,0x14000800U}) {
         rejects([&]{vu.submit_word(bad);}); require(vu.state()==complete);
     }
     auto bad=complete; bad.vi[0]=1; rejects([&]{vu.restore(bad);}); require(vu.state()==complete);

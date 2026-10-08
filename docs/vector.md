@@ -12,17 +12,18 @@ that word was not consumed and must be retried after a VU tick. Supported codes:
 | Code | Supported fields and behavior |
 | --- | --- |
 | NOP | Exactly `0x00000000` |
-| STCYCL | Exactly `0x01000101`, WL=CL=1 |
+| STCYCL | Nonzero WL<=CL skipping cycles; NUM ignored |
 | MPG | `0x4a`, bounded VU1 micro-memory destination, NUM pairs; zero means 256 |
-| UNPACK V4_32 | `0x6c`, absolute 10-bit destination; no flags, masks, or cycle variations; zero NUM means 256 |
+| UNPACK | S32/S16/S8 and V4_32/V4_16/V4_8, signed/unsigned expansion, absolute addressing and skipping cycles; zero NUM means 256 |
 | MSCAL | `0x14`, NUM=0, pair address 0..2047; waits while running |
 | FLUSHE | Opcode `0x10`; ignores NUM/immediate and waits while running |
 
 MPG and UNPACK wait for an idle VU before consuming their command. MPG consumes
-lower then upper words. UNPACK consumes x/y/z/w in order. Partial uploads are
+lower then upper words. [UNPACK](vif-unpack.md) expands low elements first,
+broadcasts scalar values, and writes V4 components in x/y/z/w order. Partial uploads are
 visible in state and retained through snapshots. Transfers crossing the end of
 memory are rejected; wraparound behavior is outside this profile. VIF interrupt
-bits, double buffering, unpack masks, other unpack formats and
+bits, double buffering, unpack masks, filling cycles, TOPS addressing, other unpack formats and
 register controls are rejected explicitly. The standalone word parser has no
 stream offset; its caller is responsible for MPG payload alignment. Integrated
 DMA enforces MPG command placement in word 1 or 3 of a qword so its following

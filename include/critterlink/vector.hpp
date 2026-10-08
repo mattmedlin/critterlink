@@ -9,9 +9,12 @@ struct VectorState {
     std::array<std::uint16_t, 16> vi{};
     std::uint16_t pc{};
     bool running{}, end_pending{};
-    // Payload is 0 (idle), 0x4a (MPG), or 0x6c (UNPACK V4_32).
+    // Payload is idle, MPG, or one of the supported scalar/V4 UNPACK opcodes.
     std::uint8_t payload{};
     std::uint16_t payload_address{}, payload_remaining{}, payload_lane{};
+    std::uint8_t cycle_cl{1}, cycle_wl{1};
+    bool unpack_unsigned{};
+    std::uint16_t unpack_base{}, unpack_total{}, unpack_completed{};
     bool operator==(const VectorState&) const = default;
 };
 class VectorUnit {
