@@ -23,7 +23,7 @@ bool VectorUnit::submit_word(std::uint32_t word) {
     const auto number = (word >> 16U) & 255U;
     if (command == 0 && word == 0) return true;
     if (command == 1 && word == 0x01000101U) return true;
-    if (command == 0x10 && word == 0x10000000U) return !state_.running;
+    if (command == 0x10) return !state_.running;
     if (command == 0x14 && number == 0 && immediate < 2048) {
         if (state_.running) return false;
         state_.pc = static_cast<std::uint16_t>(immediate);

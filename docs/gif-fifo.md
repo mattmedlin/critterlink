@@ -3,8 +3,8 @@
 The EE uses SQ to send packets to GIF_FIFO. CPU stores and normal/source-chain
 channel-2 DMA share an ordered, bounded queue of sixteen 128-bit entries. The
 consumer supports PACKED A+D drawing/register packets and IMAGE uploads into
-[GS local memory](gs-local-memory.md). REGLIST, VIF DIRECT, VU XGKICK and complete
-GS rendering remain unsupported.
+[GS local memory](gs-local-memory.md). VIF DIRECT uses a separate PATH2 queue with [EOP arbitration](vif-direct.md).
+REGLIST, VU XGKICK and complete GS rendering remain unsupported.
 
 ## Addresses and transactions
 
@@ -37,17 +37,17 @@ CPU/DMA ordering, service rate and stall latency are explicit emulator policies,
 not measurements of physical bus arbitration or clock ratios.
 
 `GIF_CTRL` at `0x10003000` supports PSE (bit 3) and RST (bit 0). PSE pauses decoding
-while enqueue can continue until full. RST clears the queue and partial GIF tag
-payload count; it does not reset GS registers, framebuffer or a pending GS vertex.
+while enqueue can continue until full. RST clears both path queues, ownership and partial GIF tag
+payload state; it does not reset GS registers, framebuffer or a pending GS vertex.
 The write's PSE bit establishes the post-reset pause state. Resetting GIF does not
 cancel active DMA or clear an unrelated hardware stop. Other CTRL bits reject.
 
-`GIF_STAT` at `0x10003020` exposes queue occupancy in FQC (bits 28:24), PSE, P3Q
-when entries wait, and OPH/APATH=3 when unpaused queued or partial packet work is
-present. These path bits describe this single-path logical implementation;
-packet arbitration at EOP and physical output-busy timing remain unimplemented.
-Other paths, GIF_MODE masks/intermittent mode, reverse transfers and diagnostic
-count/tag registers are unsupported rather than silently accepted.
+`GIF_STAT` at `0x10003020` exposes PATH3 occupancy in FQC (bits28:24),
+PSE, waiting PATH3/PATH2 requests, retained packet ownership in APATH/OPH,
+VIF's PATH3 mask and BUSDIR direction. See the [DIRECT contract](vif-direct.md)
+for exact fields and packet arbitration. GIF_MODE masks/intermittent mode and
+diagnostic count/tag registers remain unsupported. Reverse GS pixel transport
+uses the separate [VIF1 readback path](gs-readback.md).
 
 An unsupported queued packet stops hardware at that entry. Its FIFO head and
 prior graphics state remain intact. Already accepted DMA data is not rolled back.

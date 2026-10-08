@@ -30,6 +30,7 @@ struct GraphicsState {
     GraphicsTransferState transfer;
     bool finish_pending{}, finish_event{};
     std::uint16_t imr{0x1f00};
+    bool gif_eop{};
     bool operator==(const GraphicsState&) const = default;
 };
 class Graphics {

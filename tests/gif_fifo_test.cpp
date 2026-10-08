@@ -189,8 +189,9 @@ void snapshot_replay() {
     const auto graphics=memory.hardware().graphics();
     check(graphics.vertex_pending && graphics.remaining==1,"reset checkpoint missing vertex");
     memory.write(ctrl,4,1);
-    auto reset_graphics=graphics; reset_graphics.remaining=0;
-    check(memory.hardware().state().gif_fifo.count==0 && memory.hardware().graphics()==reset_graphics,"GIF reset changed GS state");
+    auto reset_graphics=graphics; reset_graphics.remaining=0; reset_graphics.gif_eop=false;
+    check(memory.hardware().state().gif_fifo.count==0 && memory.hardware().state().gif_owner==0 &&
+          memory.hardware().graphics()==reset_graphics,"GIF reset changed GS state");
 
 }
 

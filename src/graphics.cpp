@@ -187,8 +187,8 @@ void Graphics::submit_qword(std::array<std::uint32_t, 4> words) {
     if (state_.remaining == 0) {
         const auto loops = static_cast<std::uint32_t>(low & 0x7fff);
         // EE User's Manual v6.0 p151: a zero-loop tag ignores every field
-        // except EOP; this model has no path arbitration driven by EOP.
-        if (loops == 0) { return; }
+        // except EOP, which Hardware uses to retain GIF packet ownership.
+        if (loops == 0) { state_.gif_eop = (low & 0x8000u) != 0; return; }
         const auto mode = (low >> 58) & 3;
         // The same table specifies FLG3 (Disable) performs the IMAGE operation.
         require(mode == 0 || mode == 2 || mode == 3, "unsupported GIF transport mode");
@@ -200,6 +200,7 @@ void Graphics::submit_qword(std::array<std::uint32_t, 4> words) {
         }
         state_.mode = mode == 0 ? GifMode::packed : GifMode::image;
         state_.remaining = loops;
+        state_.gif_eop = (low & 0x8000u) != 0;
         return;
     }
     if (state_.mode == GifMode::image) {

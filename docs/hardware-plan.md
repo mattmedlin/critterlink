@@ -103,6 +103,13 @@ An API call to `load_elf` resets CPU and loads its segments but preserves device
 state, just as it preserves RAM outside segments. Start from a fresh system for
 a cold diagnostic run.
 
+## VIF graphics transport
+
+[DIRECT/DIRECTHL and synchronization](vif-direct.md) feed a separate PATH2
+queue. GIF ownership persists until packet EOP; VIF masking and queue waits
+preserve ordering and replay. Forward CPU VIF input, PATH1 and intermittent
+arbitration remain unfinished.
+
 ## Timer, INTC and DMA profile
 
 The bus recognizes the implemented EE registers at canonical physical addresses

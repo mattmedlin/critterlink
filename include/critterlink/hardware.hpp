@@ -60,6 +60,14 @@ struct VifReadbackFifoState {
     std::uint8_t head{}, count{};
     bool operator==(const VifReadbackFifoState&) const = default;
 };
+enum class VifWait { none, vu, gif };
+struct VifTransportState {
+    std::uint32_t direct_remaining{};
+    std::array<std::uint32_t, 4> words{};
+    std::uint8_t lane{};
+    VifWait wait{VifWait::none};
+    bool operator==(const VifTransportState&) const = default;
+};
 struct HardwareState {
     SchedulerState scheduler;
     std::array<TimerState, 4> timers{};
@@ -84,6 +92,10 @@ struct HardwareState {
     bool gs_interrupt_high{true};
     VifReadbackFifoState vif_readback_fifo;
     bool vif_fdr{}, gs_busdir{};
+    GifFifoState gif_path2_fifo;
+    std::uint8_t gif_owner{};
+    bool path3_masked{};
+    VifTransportState vif_transport;
     bool operator==(const HardwareState&) const = default;
 };
 
@@ -140,6 +152,7 @@ private:
     std::array<std::uint32_t, 4> pop_readback();
     void tick_dma(std::span<const std::uint8_t> ram);
     void tick_gif();
+    bool submit_vif_word(std::uint32_t word, unsigned physical_word, bool tag_word);
     bool enqueue_gif(std::array<std::uint32_t, 4> words);
     Scheduler scheduler_;
     std::array<TimerState, 4> timers_{};
@@ -162,6 +175,10 @@ private:
     GifFifoState gif_fifo_;
     VifReadbackFifoState vif_readback_fifo_;
     bool vif_fdr_{}, gs_busdir_{};
+    GifFifoState gif_path2_fifo_;
+    std::uint8_t gif_owner_{};
+    bool path3_masked_{};
+    VifTransportState vif_transport_;
     std::optional<std::string> stop_;
 };
 

@@ -13,10 +13,10 @@ FIFO map, port widths, VIF1 bidirectionality and FDR/FQC fields
 Sony's **GS User's Manual v6.0**, pages74–79 and144, describes packing, size
 restrictions and BUSDIR ([manufacturer document mirror](https://raw.githubusercontent.com/ninjadynamics/PS2Docs/main/GS_Users_Manual.pdf)).
 Pinned PS2SDK [`screenshot.c`](https://github.com/ps2dev/ps2sdk/blob/2c670453980fcc3fe46ead6399b730b12c8556eb/ee/debug/src/screenshot.c)
-uses FDR, BUSDIR and channel1 CHCR=0x100. Its VIF DIRECT/FLUSHA/MSKPATH3 setup is
-not implemented, so this does not claim that unmodified SDK function works.
-Original guests use the implemented GIF setup path followed by those reverse
-controls.
+uses FDR, BUSDIR and channel1 CHCR=0x100. Its VIF DIRECT/FLUSHA/MSKPATH3 setup is supported through channel1 DMA
+within the [DIRECT profile](vif-direct.md). Its final CPU VIF FIFO unmask write
+remains unsupported, so this does not claim that the unmodified SDK function
+works. Original guests exercise both GIF and VIF DMA setup paths.
 
 ## Setup and transfer
 
@@ -80,7 +80,7 @@ and active-channel combinations before replacing state.
 ## Limits
 
 VIF1_STAT is a narrow status profile; unimplemented forward pipeline fields are
-not claimed as full hardware status. General VIF CPU input, DIRECT paths, other
+not claimed as full hardware status. General VIF CPU input, other
 pixel formats and physical GS/VIF timing remain unfinished. Readback tests cover
 literal raster output, buffer/coordinate layout, odd-width packing, CPU stalls,
 DMA backpressure, atomic bus faults, direction guards and original guest RAM

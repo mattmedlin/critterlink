@@ -172,7 +172,8 @@ void Hardware::write_gs(std::uint32_t address, std::uint64_t value) {
         require((vif_dma_.chcr & 0x100u) == 0 && (dma_.chcr & 0x100u) == 0,
                 "BUSDIR requires idle DMA channels");
         if (reverse) {
-            require(vif_fdr_ && gif_fifo_.count == 0 && graphics_.state().remaining == 0 &&
+            require(vif_fdr_ && gif_fifo_.count == 0 && gif_path2_fifo_.count == 0 && gif_owner_ == 0 &&
+                    vif_transport_.direct_remaining == 0 && graphics_.state().remaining == 0 &&
                     !vif_dma_.loaded && vector_.state().payload == 0 && !vector_.busy() && (!graphics_.state().transfer.active || graphics_.has_readback()),
                     "BUSDIR reversal requires an idle forward path and FDR");
         } else {
@@ -192,7 +193,14 @@ void Hardware::sample_gs_interrupt() noexcept {
 }
 
 std::uint32_t Hardware::read(std::uint32_t address) const {
-    if (address == 0x10003c00u) return (vif_fdr_ ? 0x800000u : 0u) | (std::uint32_t{vif_readback_fifo_.count} << 24u);
+    if (address == 0x10003c00u) {
+        const auto wait = vif_transport_.wait;
+        const std::uint32_t vps = wait != VifWait::none ? 2u :
+            (vif_transport_.direct_remaining != 0 ? (vif_transport_.lane != 0 ? 3u : 1u) :
+             (vector_.state().payload != 0 ? 3u : 0u));
+        return vps | (wait == VifWait::vu ? 4u : 0u) | (wait == VifWait::gif ? 8u : 0u) |
+               (vif_fdr_ ? 0x800000u : 0u) | (std::uint32_t{vif_readback_fifo_.count} << 24u);
+    }
     if (Sif::ee_address(address)) { return sif_.ee_read32(address); }
     if (address >= timer_base && address < timer_base + 0x2000) {
         const auto index = (address - timer_base) / 0x800;
@@ -208,10 +216,11 @@ std::uint32_t Hardware::read(std::uint32_t address) const {
     }
     switch (address) {
     case gif_stat: {
-        const bool pending = gif_fifo_.count != 0;
-        const bool active = !gif_fifo_.paused && (pending || graphics_.state().remaining != 0);
         return (std::uint32_t{gif_fifo_.count} << 24U) | (gif_fifo_.paused ? 8U : 0U) |
-               (pending ? 0x40U : 0U) | (active ? 0xe00U : 0U);
+               (path3_masked_ ? 2u : 0u) | (gif_fifo_.count != 0 && gif_owner_ != 3 ? 0x40U : 0U) |
+               (gif_path2_fifo_.count != 0 && gif_owner_ != 2 ? 0x80u : 0u) |
+               (std::uint32_t{gif_owner_} << 10u) | (gif_owner_ != 0 ? 0x200u : 0u) |
+               (gs_busdir_ ? 0x1000u : 0u);
     }
     case intc_stat: return interrupt_status_;
     case intc_mask: return interrupt_mask_;
@@ -277,8 +286,11 @@ void Hardware::write(std::uint32_t address, std::uint32_t value) {
         require((value & ~9U) == 0, "unsupported GIF_CTRL bits");
         if ((value & 1U) != 0) {
             gif_fifo_ = {};
+            gif_path2_fifo_ = {};
+            gif_owner_ = 0;
             auto graphics = graphics_.state();
-            graphics.remaining = 0; // GIF reset does not reset GS registers or vertices.
+            graphics.remaining = 0; // GIF reset retains GS and VIF command state.
+            graphics.gif_eop = false;
             graphics_.restore(graphics);
         }
         gif_fifo_.paused = (value & 8U) != 0;
@@ -344,6 +356,7 @@ void Hardware::write(std::uint32_t address, std::uint32_t value) {
         }
         next.chcr = value;
         vif_dma_ = next;
+        if (value == 0) { vif_transport_.wait = VifWait::none; }
         return;
     }
     case d2_madr:
@@ -432,18 +445,78 @@ void Hardware::tick_readback() {
     ++vif_readback_fifo_.count;
 }
 void Hardware::tick_gif() {
-    if (gif_fifo_.paused || gif_fifo_.count == 0) return;
-    // Keep the offending qword and decoder intact on unsupported packet input.
+    if (gif_fifo_.paused || gs_busdir_) return;
+    auto owner = gif_owner_;
+    if (owner == 0) {
+        if (gif_path2_fifo_.count != 0) owner = 2;
+        else if (!path3_masked_ && gif_fifo_.count != 0) owner = 3;
+        else return;
+    }
+    auto& fifo = owner == 2 ? gif_path2_fifo_ : gif_fifo_;
+    if (fifo.count == 0) return;
+    // Decode, dequeue and ownership form one transaction on invalid input.
     auto staged = graphics_;
-    try { staged.submit_qword(gif_fifo_.words[gif_fifo_.head]); }
+    try { staged.submit_qword(fifo.words[fifo.head]); }
     catch (const std::invalid_argument& error) {
         stop_ = std::string("GIF/GS FIFO: ") + error.what();
         return;
     }
     graphics_ = std::move(staged);
-    gif_fifo_.words[gif_fifo_.head] = {};
-    gif_fifo_.head = static_cast<std::uint8_t>((gif_fifo_.head + 1U) % 16U);
-    --gif_fifo_.count;
+    gif_owner_ = graphics_.state().remaining == 0 && graphics_.state().gif_eop ? 0 : owner;
+    fifo.words[fifo.head] = {};
+    fifo.head = static_cast<std::uint8_t>((fifo.head + 1U) % 16U);
+    --fifo.count;
+}
+
+bool Hardware::submit_vif_word(std::uint32_t word, unsigned physical_word, bool tag_word) {
+    auto& transport = vif_transport_;
+    if (transport.direct_remaining != 0) {
+        require(!tag_word, "TTE tag words cannot interpose DIRECT payload");
+        if (transport.lane == 3) {
+            if (gif_path2_fifo_.count == 16) { transport.wait = VifWait::gif; return false; }
+            auto words = transport.words;
+            words[3] = word;
+            const auto tail = (unsigned{gif_path2_fifo_.head} + gif_path2_fifo_.count) % 16u;
+            gif_path2_fifo_.words[tail] = words;
+            ++gif_path2_fifo_.count;
+            transport.words = {};
+            transport.lane = 0;
+            --transport.direct_remaining;
+        } else { transport.words[transport.lane++] = word; }
+        transport.wait = VifWait::none;
+        return true;
+    }
+    // VU upload payload is never decoded again as a command.
+    if (vector_.state().payload != 0) return vector_.submit_word(word);
+    const auto command = word >> 24u;
+    require((command & 0x80u) == 0, "VIF command interrupts are unsupported");
+    if (command == 0x50u || command == 0x51u) {
+        require(physical_word == 3, "VIF DIRECT payload requires 128-bit alignment");
+        transport.direct_remaining = (word & 0xffffu) == 0 ? 65536u : word & 0xffffu;
+        transport.wait = VifWait::none;
+        return true;
+    }
+    if (command == 6) {
+        path3_masked_ = (word & 0x8000u) != 0;
+        transport.wait = VifWait::none;
+        return true;
+    }
+    if (command == 0x10u || command == 0x11u || command == 0x13u) {
+        if (vector_.busy()) { transport.wait = VifWait::vu; return false; }
+        const bool path2 = gif_path2_fifo_.count != 0 || gif_owner_ == 2;
+        const bool path3 = gif_fifo_.count != 0 || gif_owner_ == 3 || (dma_.chcr & 0x100u) != 0;
+        if ((command != 0x10u && path2) || (command == 0x13u && path3)) {
+            transport.wait = VifWait::gif;
+            return false;
+        }
+        transport.wait = VifWait::none;
+        return true;
+    }
+    require(command != 0x4au || (physical_word & 1u) != 0,
+            "VIF1 MPG payload requires 64-bit alignment");
+    if (!vector_.submit_word(word)) { transport.wait = VifWait::vu; return false; }
+    transport.wait = VifWait::none;
+    return true;
 }
 
 void Hardware::set_sbus_interrupt_line(bool high) noexcept {
@@ -513,6 +586,7 @@ void Hardware::tick_vif_dma(std::span<std::uint8_t> ram) {
         channel.chcr &= ~0x100u;
         dma_.status |= 0x8002u;
         clear_vif_packet(channel);
+        vif_transport_.wait = VifWait::none;
         stop_ = reason;
     };
     const auto in_ram = [&](std::uint32_t address) {
@@ -581,17 +655,10 @@ void Hardware::tick_vif_dma(std::span<std::uint8_t> ram) {
         }
         return;
     }
-    // Physical word indices preserve MPG's 64-bit payload alignment even when
-    // the command is transported in the upper half of a DMAtag.
-    const auto submit = [&](std::uint32_t word, unsigned physical_word) {
-        require(vector_.state().payload != 0 || (word >> 24u) != 0x4au ||
-                (physical_word & 1u) != 0, "VIF1 MPG payload requires 64-bit alignment");
-        return vector_.submit_word(word);
-    };
     if (channel.phase == VifChainPhase::tag_words) {
         try {
             while (channel.tag_cursor < 2) {
-                if (!submit(channel.tag_words[channel.tag_cursor], 2 + channel.tag_cursor)) { return; }
+                if (!submit_vif_word(channel.tag_words[channel.tag_cursor], 2 + channel.tag_cursor, true)) { return; }
                 ++channel.tag_cursor;
             }
         } catch (const std::invalid_argument& error) {
@@ -616,7 +683,7 @@ void Hardware::tick_vif_dma(std::span<std::uint8_t> ram) {
         }
         try {
             while (channel.cursor < 4) {
-                if (!submit(channel.pending[channel.cursor], channel.cursor)) { return; }
+                if (!submit_vif_word(channel.pending[channel.cursor], channel.cursor, false)) { return; }
                 ++channel.cursor;
             }
         } catch (const std::invalid_argument& error) {
@@ -780,7 +847,7 @@ void Hardware::advance(std::uint64_t ticks, std::span<std::uint8_t> ram, std::sp
 }
 
 HardwareState Hardware::state() const {
-    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state(), sio2_.state(), cdvd_.state(), gif_fifo_, iop_intc_.state(), iop_timers_.state(), sbus_interrupt_high_, sbus_external_high_, iop_sbus_control_, ee_hblank_, ee_vblank_, gs_interrupt_high_, vif_readback_fifo_, vif_fdr_, gs_busdir_};
+    return {scheduler_.state(), timers_, interrupt_status_, interrupt_mask_, dma_, graphics_.state(), stop_, vif_dma_, vector_.state(), iop_.state(), sif_.state(), spu_.state(), sio2_.state(), cdvd_.state(), gif_fifo_, iop_intc_.state(), iop_timers_.state(), sbus_interrupt_high_, sbus_external_high_, iop_sbus_control_, ee_hblank_, ee_vblank_, gs_interrupt_high_, vif_readback_fifo_, vif_fdr_, gs_busdir_, gif_path2_fifo_, gif_owner_, path3_masked_, vif_transport_};
 }
 
 void Hardware::restore(const HardwareState& state) {
@@ -898,7 +965,8 @@ void Hardware::restore(const HardwareState& state) {
     require(reverse.count == 0 || (state.gs_busdir && state.vif_fdr && replacement.graphics_.has_readback()),
             "reverse FIFO requires an active reverse bus");
     if (state.gs_busdir) {
-        require(state.gif_fifo.count == 0 && state.graphics.remaining == 0 && (gif.chcr & 0x100u) == 0 &&
+        require(state.gif_fifo.count == 0 && state.gif_path2_fifo.count == 0 && state.gif_owner == 0 &&
+                state.vif_transport.direct_remaining == 0 && state.graphics.remaining == 0 && (gif.chcr & 0x100u) == 0 &&
                 !channel.loaded && state.vector.payload == 0 && !state.vector.running && (!state.graphics.transfer.active || replacement.graphics_.has_readback()) &&
                 (state.vif_fdr || (remaining == 0 && reverse.count == 0)), "invalid reverse bus snapshot");
     }
@@ -915,6 +983,33 @@ void Hardware::restore(const HardwareState& state) {
         const auto slot = (unsigned{state.gif_fifo.head} + i) % 16U;
         require(state.gif_fifo.words[slot] == std::array<std::uint32_t, 4>{}, "invalid unused GIF FIFO slot");
     }
+    require(state.gif_path2_fifo.head < 16 && state.gif_path2_fifo.count <= 16 && !state.gif_path2_fifo.paused,
+            "invalid PATH2 FIFO bounds");
+    for (unsigned i = state.gif_path2_fifo.count; i < 16; ++i) {
+        require(state.gif_path2_fifo.words[(unsigned{state.gif_path2_fifo.head} + i) % 16u] ==
+                std::array<std::uint32_t, 4>{}, "invalid unused PATH2 FIFO slot");
+    }
+    require(state.gif_owner == 0 || state.gif_owner == 2 || state.gif_owner == 3, "invalid GIF packet owner");
+    require(state.gif_owner != 0 || state.graphics.remaining == 0, "GIF payload requires packet owner");
+    require(state.gif_owner == 0 || state.graphics.remaining != 0 || !state.graphics.gif_eop,
+            "completed GIF packet cannot retain owner");
+    const auto& transport = state.vif_transport;
+    require(transport.direct_remaining <= 65536 && transport.lane < 4 &&
+            (transport.direct_remaining != 0 || transport.lane == 0) &&
+            (transport.direct_remaining == 0 || state.vector.payload == 0), "invalid DIRECT assembly state");
+    for (unsigned i = transport.lane; i < 4; ++i) {
+        require(transport.words[i] == 0, "invalid unused DIRECT assembly word");
+    }
+    require(transport.wait == VifWait::none || transport.wait == VifWait::vu || transport.wait == VifWait::gif,
+            "invalid VIF wait reason");
+    require(transport.direct_remaining == 0 || transport.wait == VifWait::none ||
+            (transport.wait == VifWait::gif && transport.lane == 3), "invalid DIRECT wait state");
+    require(transport.wait == VifWait::none || ((channel.chcr & 0x101u) == 0x101u &&
+            (channel.loaded || channel.phase == VifChainPhase::tag_words)), "VIF wait requires a retained command");
+    replacement.gif_path2_fifo_ = state.gif_path2_fifo;
+    replacement.gif_owner_ = state.gif_owner;
+    replacement.path3_masked_ = state.path3_masked;
+    replacement.vif_transport_ = transport;
     replacement.gif_fifo_ = state.gif_fifo;
     replacement.timers_ = state.timers;
     replacement.sbus_interrupt_high_ = state.sbus_interrupt_high;
