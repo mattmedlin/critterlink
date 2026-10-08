@@ -4,7 +4,7 @@
 #include <vector>
 
 namespace critterlink {
-enum class GifMode { packed, image };
+enum class GifMode { packed, image, reglist };
 struct GraphicsTransferState {
     std::uint32_t base{}, width{}, x{}, y{}, rect_width{}, rect_height{}, cursor{};
     bool active{};
@@ -31,6 +31,9 @@ struct GraphicsState {
     bool finish_pending{}, finish_event{};
     std::uint16_t imr{0x1f00};
     bool gif_eop{};
+    // REGLIST remaining counts 64-bit items; other modes count qwords.
+    std::uint64_t regs{};
+    std::uint8_t nreg{}, reg_index{};
     bool operator==(const GraphicsState&) const = default;
 };
 class Graphics {
@@ -48,6 +51,7 @@ public:
     void restore(const GraphicsState& state);
     void reset() { state_ = {}; }
 private:
+    void submit_reglist_payload(std::array<std::uint32_t, 4> words);
     void write_register(std::uint8_t address, std::uint64_t value);
     void write_vram(std::uint32_t byte_address, std::uint32_t value);
     void write_hwreg(std::uint64_t value);

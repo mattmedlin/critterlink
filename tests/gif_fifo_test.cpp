@@ -156,7 +156,7 @@ void interrupt_retry() {
 
 void rejected_packet() {
     Memory memory;
-    memory.write_quadword(fifo,{0x0400000000000001ULL,0}); // Nonempty REGLIST: unsupported, but posted into the queue.
+    memory.write_quadword(fifo,{0x1400000000000001ULL,2}); // REGLIST ST descriptor is unsupported, but posted into the queue.
     const auto before=memory.hardware().state();
     memory.advance(1);
     const auto failed=memory.state();

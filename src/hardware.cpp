@@ -297,6 +297,9 @@ void Hardware::write(std::uint32_t address, std::uint32_t value) {
             auto graphics = graphics_.state();
             graphics.remaining = 0; // GIF reset retains GS and VIF command state.
             graphics.gif_eop = false;
+            graphics.regs = 0;
+            graphics.nreg = 0;
+            graphics.reg_index = 0;
             graphics_.restore(graphics);
         }
         gif_fifo_.paused = (value & 8U) != 0;

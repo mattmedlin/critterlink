@@ -9,6 +9,12 @@ namespace {
 void require(bool condition, const char* message) {
     if (!condition) throw std::invalid_argument(message);
 }
+bool reglist_descriptor(unsigned descriptor) {
+    return descriptor == 0 || descriptor == 1 || descriptor == 5 || descriptor == 14 || descriptor == 15;
+}
+std::uint64_t active_regs(std::uint64_t regs, unsigned count) {
+    return count == 16 ? regs : regs & ((std::uint64_t{1} << (count * 4)) - 1);
+}
 constexpr std::uint64_t bitbltbuf_mask = 0x3f3f3fff3f3f3fffULL;
 constexpr std::uint64_t trxpos_mask = 0x1fff07ff07ff07ffULL;
 constexpr std::uint64_t trxreg_mask = 0x00000fff00000fffULL;
@@ -76,7 +82,7 @@ const std::array<std::uint16_t, 4096>& framebuffer_indices() {
 
 }
 void Graphics::restore(const GraphicsState& state) {
-    require(state.remaining <= 32767 && state.scissor_x0 <= 2047 &&
+    require(state.scissor_x0 <= 2047 &&
             state.scissor_x1 <= 2047 && state.scissor_y0 <= 2047 &&
             state.scissor_y1 <= 2047 && (state.offset_x % 16) == 0 &&
             (state.offset_y % 16) == 0 && (state.first_x % 16) == 0 &&
@@ -84,10 +90,24 @@ void Graphics::restore(const GraphicsState& state) {
             (!state.vertex_pending || (state.primitive_ready && state.frame_ready)),
             "invalid graphics snapshot");
     require(state.vram.size() == (1U << 20) &&
-            (state.mode == GifMode::packed || state.mode == GifMode::image) &&
+            (state.mode == GifMode::packed || state.mode == GifMode::image || state.mode == GifMode::reglist) &&
             (state.bitbltbuf & ~bitbltbuf_mask) == 0 && (state.trxpos & ~trxpos_mask) == 0 &&
             (state.trxreg & ~trxreg_mask) == 0 && state.trxdir <= 3,
             "invalid GS local-memory or transfer-register snapshot");
+    if (state.mode == GifMode::reglist && state.remaining != 0) {
+        require(state.nreg >= 1 && state.nreg <= 16 && state.reg_index < state.nreg &&
+                state.remaining <= 32767u * state.nreg - state.reg_index &&
+                (state.remaining + state.reg_index) % state.nreg == 0 &&
+                ((state.nreg & 1u) != 0 || (state.reg_index & 1u) == 0) &&
+                state.regs == active_regs(state.regs, state.nreg), "invalid REGLIST parser snapshot");
+        for (unsigned i = 0; i < state.nreg; ++i) {
+            require(reglist_descriptor(static_cast<unsigned>((state.regs >> (i * 4)) & 15u)),
+                    "unsupported REGLIST snapshot descriptor");
+        }
+    } else {
+        require(state.regs == 0 && state.nreg == 0 && state.reg_index == 0 && state.remaining <= 32767,
+                "invalid inactive REGLIST metadata");
+    }
     require((state.imr & ~0x1f00u) == 0 && (!state.finish_pending || (state.transfer.active && !state.transfer.local_readback)),
             "invalid GS FINISH fence or mask snapshot");
     const auto& transfer = state.transfer;
@@ -191,8 +211,24 @@ void Graphics::submit_qword(std::array<std::uint32_t, 4> words) {
         if (loops == 0) { state_.gif_eop = (low & 0x8000u) != 0; return; }
         const auto mode = (low >> 58) & 3;
         // The same table specifies FLG3 (Disable) performs the IMAGE operation.
-        require(mode == 0 || mode == 2 || mode == 3, "unsupported GIF transport mode");
         require((low & 0x00003fffffff0000ULL) == 0, "GIF tag reserved bits must be zero");
+        if (mode == 1) {
+            const auto encoded = static_cast<unsigned>((low >> 60) & 15u);
+            const auto count = encoded == 0 ? 16u : encoded;
+            const auto regs = active_regs(std::uint64_t{words[2]} | (std::uint64_t{words[3]} << 32), count);
+            for (unsigned i = 0; i < count; ++i) {
+                require(reglist_descriptor(static_cast<unsigned>((regs >> (i * 4)) & 15u)),
+                        "unsupported REGLIST descriptor");
+            }
+            // PRE/PRIM are ignored in REGLIST (EE User's Manual v6.0 p159).
+            state_.mode = GifMode::reglist;
+            state_.remaining = loops * count;
+            state_.regs = regs;
+            state_.nreg = static_cast<std::uint8_t>(count);
+            state_.reg_index = 0;
+            state_.gif_eop = (low & 0x8000u) != 0;
+            return;
+        }
         if (mode == 0) {
             require(((low >> 60) & 15) == 1 && words[2] == 14 && words[3] == 0,
                     "GIF PACKED supports only a single A+D descriptor");
@@ -201,6 +237,14 @@ void Graphics::submit_qword(std::array<std::uint32_t, 4> words) {
         state_.mode = mode == 0 ? GifMode::packed : GifMode::image;
         state_.remaining = loops;
         state_.gif_eop = (low & 0x8000u) != 0;
+        return;
+    }
+    if (state_.mode == GifMode::reglist) {
+        // Register writes can render before a later lane rejects. Stage the
+        // whole qword even for direct callers; Hardware also stages its FIFO.
+        auto staged = *this;
+        staged.submit_reglist_payload(words);
+        *this = std::move(staged);
         return;
     }
     if (state_.mode == GifMode::image) {
@@ -213,6 +257,16 @@ void Graphics::submit_qword(std::array<std::uint32_t, 4> words) {
             "GIF A+D address must fit eight bits");
     write_register(static_cast<std::uint8_t>(words[2]), low);
     --state_.remaining;
+}
+void Graphics::submit_reglist_payload(std::array<std::uint32_t, 4> words) {
+    for (unsigned lane = 0; lane < 2 && state_.remaining != 0; ++lane) {
+        const auto descriptor = static_cast<std::uint8_t>((state_.regs >> (state_.reg_index * 4)) & 15u);
+        const auto value = std::uint64_t{words[lane * 2]} | (std::uint64_t{words[lane * 2 + 1]} << 32);
+        if (descriptor != 14 && descriptor != 15) write_register(descriptor, value);
+        --state_.remaining;
+        state_.reg_index = static_cast<std::uint8_t>((state_.reg_index + 1u) % state_.nreg);
+    }
+    if (state_.remaining == 0) { state_.regs = 0; state_.nreg = 0; state_.reg_index = 0; }
 }
 void Graphics::write_vram(std::uint32_t byte_address, std::uint32_t value) {
     const auto word = byte_address / 4;

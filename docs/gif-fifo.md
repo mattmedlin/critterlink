@@ -2,9 +2,10 @@
 
 The EE uses SQ to send packets to GIF_FIFO. CPU stores and normal/source-chain
 channel-2 DMA share an ordered, bounded queue of sixteen 128-bit entries. The
-consumer supports PACKED A+D drawing/register packets and IMAGE uploads into
+consumer supports PACKED A+D, [REGLIST](gif-reglist.md) for existing sprite
+registers, and IMAGE uploads into
 [GS local memory](gs-local-memory.md). VIF DIRECT uses a separate PATH2 queue with [EOP arbitration](vif-direct.md).
-REGLIST, VU XGKICK and complete GS rendering remain unsupported.
+VU XGKICK and complete GS rendering remain unsupported.
 
 ## Addresses and transactions
 

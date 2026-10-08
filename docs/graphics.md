@@ -2,8 +2,9 @@
 
 `Graphics::submit_qword` consumes one 128-bit word in little-endian word order.
 PACKED GIF tags support one A+D descriptor and at most 32767 loops.
-IMAGE modes 2/3 feed upload data; zero-length tags ignore all other fields.
-PRE can write PRIM for nonempty PACKED tags. EOP is accepted but has no arbitration effect. One payload
+IMAGE modes 2/3 feed upload data; zero-length tags ignore all fields except EOP.
+PRE can write PRIM for nonempty PACKED tags. Hardware retains PATH2/PATH3
+ownership until packet EOP; see [arbitration](vif-direct.md). One PACKED payload
 word writes its low 64 bits to the GS address in the next byte. Invalid or
 unsupported input throws `std::invalid_argument` without consuming that word.
 The caller must stop execution on this error. A truncated stream remains pending;
@@ -20,7 +21,7 @@ subtraction, inclusive scissor bounds, and half-open sprite bounds.
 The 64-by-64 view caches `0xAABBGGRR` words from shared 4 MiB swizzled PSMCT32
 local memory. Uploads and sprites use that same backing storage. There is no
 display scanout, pixel clock, depth storage, texture sampling, blending, fractional rasterization,
-VU-to-GIF XGKICK or GIF path arbitration. The privileged interface currently
+VU-to-GIF XGKICK or intermittent GIF arbitration. The privileged interface currently
 provides only the [FINISH/CSR/IMR event subset](gs-finish.md). Reset uses
 explicit diagnostic defaults (full-surface scissor and disabled tests/depth
 writes), not a claim of hardware reset behavior. Q and Z do not affect this
@@ -38,3 +39,10 @@ Register/tag layouts were checked against the primary homebrew SDK definitions:
 and [PS2SDK GIF tag definitions](https://ps2dev.github.io/ps2sdk/gif__tags_8h_source.html).
 All implementation and tests are original; no emulator core code was imported.
 This is not yet validated against a physical PS2 capture.
+
+## Compact GIF register lists
+
+[REGLIST transport](gif-reglist.md) supports the existing PRIM/RGBAQ/XYZ2
+registers and NOP descriptors with full descriptor/loop progression, odd-tail
+padding, packet EOP ownership and atomic two-value payload submission. This
+expands packet transport while retaining the current sprite-rendering limits.
